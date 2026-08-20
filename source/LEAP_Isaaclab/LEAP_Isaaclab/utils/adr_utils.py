@@ -1,4 +1,5 @@
 import torch
+import warp as wp
 
 def init_adr_obs_act_noise(env):
     env.object_pos_bias_width = torch.zeros(env.num_envs, 1, device=env.device)
@@ -64,8 +65,9 @@ def apply_object_wrench(env, object, object_name):
     num_bodies = object.num_bodies
     
     max_linear_accel = env.leap_adr.get_custom_param_value("object_wrench", "max_linear_accel")
-    max_force = (max_linear_accel * env.object_mass).unsqueeze(2)
-    max_torque = (env.object_mass * max_linear_accel * env.cfg.torsional_radius).unsqueeze(2)
+    object_mass = env.object_mass if isinstance(env.object_mass, torch.Tensor) else wp.to_torch(env.object_mass)
+    max_force = (max_linear_accel * object_mass).unsqueeze(2)
+    max_torque = (object_mass * max_linear_accel * env.cfg.torsional_radius).unsqueeze(2)
     forces =\
         max_force * 2 * (torch.rand(env.num_envs, num_bodies, 3, device=env.device) - 0.5)
     torques =\

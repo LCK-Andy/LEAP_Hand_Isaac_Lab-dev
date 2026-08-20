@@ -9,9 +9,11 @@ import math
 import isaaclab.sim as sim_utils
 from isaaclab.actuators.actuator_cfg import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR  # noqa: F401
 from pathlib import Path
 
+# NOTE: init_state rot uses xyzw (scalar last) convention in Isaac Lab 3.0
+# Old wxyz (0.5, 0.5, -0.5, 0.5) -> new xyzw (0.5, -0.5, 0.5, 0.5)
 LEAP_HAND_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
         usd_path=f"{Path(__file__).parent}/leap_hand_v1_right/leap_hand_right.usd",
@@ -23,7 +25,7 @@ LEAP_HAND_CFG = ArticulationCfg(
             enable_gyroscopic_forces=False,
             angular_damping=0.01,
             max_linear_velocity=1000.0,
-            max_angular_velocity=64 / math.pi * 180.0, 
+            max_angular_velocity=64 / math.pi * 180.0,
             max_depenetration_velocity=1000.0,
             max_contact_impulse=1e32,
         ),
@@ -33,13 +35,12 @@ LEAP_HAND_CFG = ArticulationCfg(
             solver_velocity_iteration_count=0,
             sleep_threshold=0.005,
             stabilization_threshold=0.0005,
-            fix_root_link=True
+            fix_root_link=True,
         ),
-        # collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.005, rest_offset=0.0),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.5),
-        rot=(0.5, 0.5, -0.5, 0.5),
+        rot=(0.5, -0.5, 0.5, 0.5),  # xyzw: old wxyz (0.5, 0.5, -0.5, 0.5)
         joint_pos={"a_.*": 0.0},
     ),
     actuators={

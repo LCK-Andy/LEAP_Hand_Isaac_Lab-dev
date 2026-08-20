@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from isaaclab.utils import configclass
+from isaaclab.utils.configclass import configclass
 
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticRecurrentCfg, RslRlPpoAlgorithmCfg
 
@@ -23,11 +23,8 @@ class LeapHandPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         critic_hidden_dims=[512, 256, 128],
         activation="elu",
         rnn_type="gru",
-        rnn_units=256,
-        rnn_layers=1,
-        use_layernorm=True,
-        rnn_after_mlp=False, 
-        concat_rnn_input=True,
+        rnn_hidden_dim=256,
+        rnn_num_layers=1,
     )
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=4.0,
@@ -42,5 +39,5 @@ class LeapHandPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         lam=0.95,
         desired_kl=0.02,
         max_grad_norm=1.0,
-        normalize_advantage_per_mini_batch=True
+        normalize_advantage_per_mini_batch=True,
     )
