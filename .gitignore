@@ -38,3 +38,4 @@ _build
 source/LEAP_Isaaclab/LEAP_Isaaclab/tasks/leap_crawler/*
 source/LEAP_Isaaclab/LEAP_Isaaclab/deployment_scripts/leap_crawler.py
 source/LEAP_Isaaclab/LEAP_Isaaclab/tasks/leap_three_axis_reorient/*
+source/LEAP_Isaaclab/build/*
