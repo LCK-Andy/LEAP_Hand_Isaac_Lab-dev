@@ -2,7 +2,7 @@
 (
     defaultPrim = "sugar_box"
     upAxis = "Z"
-    metersPerUnit = 0.01
+    metersPerUnit = 1.0
     endTimeCode = 0
     startTimeCode = 0
     timeCodesPerSecond = 24
