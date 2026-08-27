@@ -39,3 +39,12 @@ source/LEAP_Isaaclab/LEAP_Isaaclab/tasks/leap_crawler/*
 source/LEAP_Isaaclab/LEAP_Isaaclab/deployment_scripts/leap_crawler.py
 source/LEAP_Isaaclab/LEAP_Isaaclab/tasks/leap_three_axis_reorient/*
 source/LEAP_Isaaclab/build/*
+
+# YCB meshes (large binary files, re-download with scripts/download_ycb.py)
+source/LEAP_Isaaclab/LEAP_Isaaclab/assets/ycb/*/
+source/LEAP_Isaaclab/LEAP_Isaaclab/assets/ycb/*.png
+source/LEAP_Isaaclab/LEAP_Isaaclab/assets/ycb/*.obj
+source/LEAP_Isaaclab/LEAP_Isaaclab/assets/ycb/*.stl
+source/LEAP_Isaaclab/LEAP_Isaaclab/assets/ycb/*.mtl
+# YCB downloaded meshes (large; regenerate with scripts/download_ycb.py)
+source/LEAP_Isaaclab/LEAP_Isaaclab/assets/ycb/[0-9]*/
