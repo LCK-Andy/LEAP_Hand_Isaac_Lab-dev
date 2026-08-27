@@ -46,6 +46,7 @@ hand_cfg.init_state.pos = (0.6, 0.0, 0.2)
 for art in hand_cfg.actuators.values():
     art.stiffness = 200.0
     art.damping = 20.0
+    art.effort_limit = 2.0
 hand = Articulation(hand_cfg)
 scene.articulations["hand"] = hand
 
@@ -59,8 +60,20 @@ obj_cfg = RigidObjectCfg(
 obj = RigidObject(obj_cfg)
 scene.rigid_objects["object"] = obj
 
-# ground plane (static collider; spawner works once the stage exists)
-spawn_ground_plane(prim_path="/World/envs/env_0/ground", cfg=GroundPlaneCfg())
+# floor: heavy dynamic cuboid (kit GroundPlane breaks physx integration in this build)
+floor_cfg = RigidObjectCfg(
+    prim_path="/World/envs/env_0/floor",
+    spawn=sim_utils.CuboidCfg(
+        size=(5.0, 5.0, 0.1),
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(disable_gravity=True),
+        collision_props=sim_utils.CollisionPropertiesCfg(),
+        mass_props=sim_utils.MassPropertiesCfg(mass=10000.0),
+        visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.4, 0.4, 0.4)),
+    ),
+    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, -0.05)),
+)
+floor = RigidObject(floor_cfg)
+scene.rigid_objects["floor"] = floor
 
 sim.reset()
 # apply friction 0.8 to every hand collision prim via a physics material
@@ -83,6 +96,20 @@ for pr in hand_stage.Traverse():
     bind_physics_material(pr.GetPath(), mat_path)
     n_mat += 1
 print(f"[play] hand friction 0.8 bound on {n_mat} collision prims")
+# also bind 0.8 to the object (default material friction ~0.25 would halve contact mu)
+n_obj = 0
+for pr in hand_stage.Traverse():
+    if not str(pr.GetPath()).startswith("/World/envs/env_0/object"):
+        continue
+    if not UsdPhysics.CollisionAPI(pr):
+        continue
+    try:
+        from pxr import UsdShade
+        UsdShade.MaterialBindingAPI(pr).Bind(UsdShade.Material(mat_path), "physics", "weakest")
+        n_obj += 1
+    except Exception as e:
+        print(f"[play]   obj bind skipped {pr.GetPath()}: {e}")
+print(f"[play] object friction 0.8 bound on {n_obj} collision prims")
 scene.reset()
 sim.step()
 
@@ -90,11 +117,19 @@ dof_map = [hand.joint_names.index(f"a_{m}") for m in DRO_JOINT_ORDER]
 n = 1
 
 def step():
+    scene.write_data_to_sim()
     sim.step()
     scene.update(1.0 / 120.0)
 
 # ---------- 1. object settles on the floor ----------
 print("[play] settling object...")
+from pxr import Usd, UsdGeom
+import omni.usd
+_st = omni.usd.get_context().get_stage()
+for _pr in _st.Traverse():
+    if "ground" in str(_pr.GetPath()):
+        _x = UsdGeom.Xformable(_pr)
+        print(f"[play]   prim {_pr.GetPath()}: z={_x.GetLocalTransformation()[2][3]*100:.1f} cm")
 for i in range(300):
     step()
     if i in (0, 30, 60, 120, 299):
@@ -114,6 +149,10 @@ T_g[:3, :3] = SciRot.from_euler("XYZ", q[3:6]).as_matrix()
 T_g[:3, 3] = q[:3]
 T_w = T_obj @ T_g
 grasp_pos = T_w[:3, 3]
+# the predicted palm is ~5cm too far from the object (loose D(R,O) grasps):
+# pull the palm 5cm closer along the object direction
+dir_obj = grasp_pos - obj_pos0.cpu().numpy()
+grasp_pos = grasp_pos - 0.05 * dir_obj / (np.linalg.norm(dir_obj) + 1e-9)
 grasp_pos[2] = max(float(grasp_pos[2]), 0.03)  # keep the palm above the ground plane
 # flip the wrist orientation 180 deg about X: grasp from the top (floor-viable)
 R_w = T_w[:3, :3]
@@ -132,36 +171,39 @@ def set_root(pos, quat):
 start_pos = grasp_pos + np.array([0.0, 0.0, 0.18])
 set_root(start_pos, grasp_quat)
 for _ in range(30):
-    hand.write_joint_position_to_sim(open_q)
+    hand.data.joint_pos_target[0, dof_map] = open_q[0]
     step()
 print("[play] approaching grasp pose...")
 for i in range(60):
     t = i / 59
     set_root((1 - t) * start_pos + t * grasp_pos, grasp_quat)
-    hand.write_joint_position_to_sim(open_q)
+    hand.data.joint_pos_target[0, dof_map] = open_q[0]
     step()
 
 # ---------- 4. close fingers ----------
 print("[play] closing fingers...")
 for i in range(90):
     t = min(1.0, i / 60)
-    hand.write_joint_position_to_sim((1 - t) * open_q + t * joint_targets)
+    hand.data.joint_pos_target[0, dof_map] = (1 - t) * open_q + t * joint_targets[0]
     set_root(grasp_pos, grasp_quat)
     step()
 
-# extra squeeze: tighten 0.25 rad beyond the predicted close (clamped to joint limits)
+# extra squeeze: tighten 0.5 rad beyond the predicted close (clamped to joint limits)
 print("[play] squeezing...")
 lim = hand.data.joint_limits
 tight = joint_targets.clone()
 for j in range(16):
-    v = tight[0, j].item() - 0.25
+    v = tight[0, j].item() - 0.5
     lo, hi = lim[0, j, 0].item(), lim[0, j, 1].item()
     tight[0, j] = min(max(v, lo), hi)
 for i in range(60):
     t = min(1.0, i / 40)
-    hand.write_joint_position_to_sim((1 - t) * joint_targets + t * tight)
+    hand.data.joint_pos_target[0, dof_map] = (1 - t) * joint_targets + t * tight[0]
     set_root(grasp_pos, grasp_quat)
     step()
+    if i in (0, 30, 59):
+        jp = hand.data.joint_pos[0, dof_map].cpu().numpy()
+        print(f"[play]   jpos {i}: mean={jp.mean():.3f} a0={jp[0]:.3f} a5={jp[4]:.3f} a9={jp[8]:.3f} a12={jp[12]:.3f}")
     if i in (0, 30, 59):
         print(f"[play]   squeeze {i}: obj z={obj.data.root_pos_w[0, 2].item()*100:.1f} cm")
 
@@ -172,7 +214,7 @@ traj = []
 for i in range(150):
     z = grasp_pos[2] + 0.22 * (i / 149)
     set_root(np.array([grasp_pos[0], grasp_pos[1], z]), grasp_quat)
-    hand.write_joint_position_to_sim(tight)
+    hand.data.joint_pos_target[0, dof_map] = tight[0]
     step()
     if i % 5 == 0:
         traj.append([i, z, obj.data.root_pos_w[0, 2].item()])
