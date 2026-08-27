@@ -111,6 +111,14 @@ class LeapHandEnvCfg(DirectRLEnvCfg):
     observation_space = 96
     state_space = 0
 
+    # default joint positions at episode start (hand open to receive object)
+    default_joint_pos: list = [
+        [0.000, 0.500, 0.000, 0.000,
+         -0.750, 1.300, 0.000, 0.750,
+         1.750, 1.500, 1.750, 1.750,
+         0.000, 1.000, 0.000, 0.000],
+    ]
+
     # simulation
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 120,

@@ -88,3 +88,13 @@ source/LEAP_Isaaclab/
 - The extension module name in `config/extension.toml` (`[[python.module]] name = "LEAP_Isaaclab"`) must match the import name.
 - `scripts/list_envs.py` searches for `Template-*` prefix — it is an unused artifact from the extension template.
 - No CI workflows exist in this repo.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `leap-hand/LEAP_Hand_Isaac_Lab`. Use the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.

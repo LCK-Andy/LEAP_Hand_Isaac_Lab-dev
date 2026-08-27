@@ -80,8 +80,12 @@ def main():
         start_time = time.time()
 
         with torch.inference_mode():
-            actions = torch.rand(env.unwrapped.num_envs, env.unwrapped.action_space, device=env.unwrapped.device) * 2.0 - 1.0
-            obs, _, dones, _ = env.step(actions)
+            actions = torch.rand(
+                env.unwrapped.num_envs,
+                env.unwrapped.single_action_space.shape[0],
+                device=env.unwrapped.device,
+            ) * 2.0 - 1.0
+            obs, _, _, _, _ = env.step(actions)
 
         timestep += 1
         if timestep % 200 == 0:

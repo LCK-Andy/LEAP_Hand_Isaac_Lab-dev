@@ -87,10 +87,9 @@ class ReorientationEnv(DirectRLEnv):
         self.successes = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         self.consecutive_successes = torch.zeros(1, dtype=torch.float, device=self.device)
 
-        self.override_default_joint_pos = torch.tensor([[0.000, 0.500, 0.000, 0.000,
-                                                         -0.750, 1.300, 0.000, 0.750,
-                                                         1.750, 1.500, 1.750, 1.750,
-                                                         0.000, 1.000, 0.000, 0.000]], device=self.device).repeat(self.num_envs, 1)
+        self.override_default_joint_pos = torch.tensor(
+            self.cfg.default_joint_pos, device=self.device
+        ).repeat(self.num_envs, 1)
 
         self.object_pos = torch.zeros((self.num_envs, 3), dtype=torch.float, device=self.device)
         self.object_linvel = torch.zeros((self.num_envs, 3), dtype=torch.float, device=self.device)
