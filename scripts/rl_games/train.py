@@ -151,7 +151,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
     # wrap around environment for rl-games
-    env = RlGamesVecEnvWrapper(env, rl_device, clip_obs, clip_actions)
+    # image observations need dict mode so rl-games routes "image" through its CNN
+    if "image" in env.unwrapped.single_observation_space:
+        env = RlGamesVecEnvWrapper(
+            env,
+            rl_device,
+            clip_obs,
+            clip_actions,
+            obs_groups={"obs": ["policy", "image"], "states": []},
+            concate_obs_group=False,
+        )
+    else:
+        env = RlGamesVecEnvWrapper(env, rl_device, clip_obs, clip_actions)
 
     # register the environment to rl-games registry
     # note: in agents configuration: environment name must be "rlgpu"

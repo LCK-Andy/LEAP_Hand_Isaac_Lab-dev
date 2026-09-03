@@ -15,8 +15,23 @@ parser = argparse.ArgumentParser(description="Run a random agent for a LEAP Hand
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during execution.")
 parser.add_argument("--video_length", type=int, default=200, help="Length of the recorded video (in steps).")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
+parser.add_argument(
+    "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
+)
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--num_steps", type=int, default=1000, help="Number of steps to run the random agent.")
+parser.add_argument(
+    "--max_rigid_contact_count",
+    type=int,
+    default=None,
+    help="Override PhysX gpu_max_rigid_contact_count (e.g. 2**22 for viz runs).",
+)
+parser.add_argument(
+    "--max_rigid_patch_count",
+    type=int,
+    default=None,
+    help="Override PhysX gpu_max_rigid_patch_count (e.g. 2**21 for viz runs).",
+)
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
@@ -45,8 +60,12 @@ import LEAP_Isaaclab.tasks
 def main():
     """Run a random agent."""
     env_cfg = parse_env_cfg(
-        args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=False
+        args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=not args_cli.disable_fabric
     )
+    if args_cli.max_rigid_contact_count is not None:
+        env_cfg.sim.physics.gpu_max_rigid_contact_count = args_cli.max_rigid_contact_count
+    if args_cli.max_rigid_patch_count is not None:
+        env_cfg.sim.physics.gpu_max_rigid_patch_count = args_cli.max_rigid_patch_count
     agent_cfg = load_cfg_from_registry(args_cli.task, "rl_games_cfg_entry_point")
 
     log_root_path = os.path.join("logs", "rl_games", agent_cfg["params"]["config"]["name"])
