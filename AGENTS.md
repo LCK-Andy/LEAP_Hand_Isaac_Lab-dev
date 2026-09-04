@@ -89,6 +89,50 @@ source/LEAP_Isaaclab/
 - `scripts/list_envs.py` searches for `Template-*` prefix — it is an unused artifact from the extension template.
 - No CI workflows exist in this repo.
 
+## Additional tasks: Franka + LEAP (welded)
+
+A single 23-DOF articulation (Franka 7-DOF + LEAP 16-DOF) is available as
+gym task `Isaac-Franka-Leap` (DirectRLEnv, `tasks/franka_leap/`).
+
+| Purpose | Command |
+|---|---|
+| Rebuild merged URDF | `python scripts/build_franka_leap_urdf.py` |
+| Headless smoke test | `python scripts/franka_leap_smoke.py` |
+| Render demo video | `python scripts/franka_leap_demo.py` |
+
+Notes:
+- The merged URDF lives at `source/LEAP_Isaaclab/LEAP_Isaaclab/assets/urdf/franka_leap.urdf`
+  with bundled meshes (`urdf/franka/meshes/`, `urdf/leap/meshes/`); the USD cache is
+  generated on first spawn (hash-based; delete `urdf/` cached dirs or set
+  `force_usd_conversion=True` in `assets/franka_leap.py` to regenerate).
+- Actions are 23-d relative joint position deltas (arm first, then hand).
+- The importer fuses the flange (panda_link8) and LEAP base into their neighbors;
+  the weld is still physically rigid (verified: fingertip-flange distance constant to 0.5 mm).
+- `panda_link7` is the wrist body used for world-space flange reporting.
+
+## Additional tasks: LEAP in-hand cube reorientation (manager-based)
+
+`Isaac-Repose-Cube-LEAP-v0` (`Isaac-Repose-Cube-LEAP-Play-v0` for eval) is the official
+manager-based `Isaac-Repose-Cube-Allegro-v0` in-hand task with the Allegro hand swapped
+for the LEAP hand (`tasks/leap_hand_repose/`). Everything else (EMA joint-position actions,
+72-d proprio + object obs, rewards, randomization, terminations) is inherited unchanged
+from `isaaclab_tasks.manager_based.manipulation.inhand`.
+
+| Purpose | Command |
+|---|---|
+| Train (RSL-RL) | `python scripts/rsl_rl/train.py --task Isaac-Repose-Cube-LEAP-v0 --headless` |
+| Play (RSL-RL) | `python scripts/rsl_rl/play.py --task Isaac-Repose-Cube-LEAP-Play-v0 --num_envs 1` |
+| Headless smoke test | `python scripts/leap_repose_smoke.py` |
+
+Notes:
+- Requires the `env_isaaclab` environment (Isaac Lab 3.0 / Isaac Sim 6.0 / Python 3.12).
+- The cube spawns at `(0.0, -0.10, 0.56)` — the LEAP palm center (Allegro uses `-0.19`).
+- The LEAP hand joints are `a_0`..`a_15` (16 DOF, same action dim as Allegro).
+- `agents/rsl_rl_ppo_cfg.py` strips the deprecated rsl_rl<4 model fields
+  (`stochastic`, `init_noise_std`, ...) in `__post_init__`: `isaaclab_rl` 3.0.0b2 still
+  serializes them and rsl-rl-lib 5.0.1's `MLPModel` rejects them (this also breaks the
+  official Allegro task's stock RSL-RL cfg in this env).
+
 ## Agent skills
 
 ### Issue tracker

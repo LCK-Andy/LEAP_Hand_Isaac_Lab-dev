@@ -48,3 +48,10 @@ source/LEAP_Isaaclab/LEAP_Isaaclab/assets/ycb/*.stl
 source/LEAP_Isaaclab/LEAP_Isaaclab/assets/ycb/*.mtl
 # YCB downloaded meshes (large; regenerate with scripts/download_ycb.py)
 source/LEAP_Isaaclab/LEAP_Isaaclab/assets/ycb/[0-9]*/
+
+# Generated/derived USD & mesh assets (regenerate via scripts/build_*_leap_urdf.py or converters)
+*.usd
+*.usda
+*.usdc
+*.obj
+*.usd.bak
