@@ -50,6 +50,7 @@ LEAP_HAND_CFG = ArticulationCfg(
             velocity_limit=100.0,
             stiffness=3.0,
             damping=0.1,
+            armature=1e-3,
             friction=0.01,
         ),
     },
