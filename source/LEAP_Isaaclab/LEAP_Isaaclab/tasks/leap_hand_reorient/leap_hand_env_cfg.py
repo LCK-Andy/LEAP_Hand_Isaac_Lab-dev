@@ -17,6 +17,7 @@ from isaaclab.assets import ArticulationCfg, RigidObjectCfg
 from isaaclab.envs import DirectRLEnvCfg
 from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.sensors import CameraCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.sim.spawners.materials.physics_materials_cfg import RigidBodyMaterialCfg
 from isaaclab.utils.configclass import configclass
@@ -138,6 +139,9 @@ class LeapHandEnvCfg(DirectRLEnvCfg):
     # NOTE: init_state rot is now xyzw (scalar last) in Isaac Lab 3.0
     # Old wxyz (0.5, 0.5, -0.5, 0.5) -> new xyzw (0.5, -0.5, 0.5, 0.5)
     robot_cfg: ArticulationCfg = LEAP_HAND_CFG.replace(prim_path="/World/envs/env_.*/Robot")
+
+    # camera (optional; only the RGBD variant sets this)
+    camera: CameraCfg | None = None
     actuated_joint_names = [
         'a_0', 'a_1', 'a_2', 'a_3', 'a_4', 'a_5', 'a_6', 'a_7',
         'a_8', 'a_9', 'a_10', 'a_11', 'a_12', 'a_13', 'a_14', 'a_15',

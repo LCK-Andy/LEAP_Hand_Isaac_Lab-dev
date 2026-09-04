@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import gymnasium as gym
 import numpy as np
 import torch
 from collections.abc import Sequence
@@ -21,6 +22,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.envs import DirectRLEnv
 from isaaclab.markers import VisualizationMarkers
+from isaaclab.sensors import Camera
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from isaaclab.utils.math import (
     matrix_from_quat, quat_conjugate, quat_from_angle_axis, quat_mul,
@@ -140,10 +142,24 @@ class ReorientationEnv(DirectRLEnv):
         self._write_hand_joint_pos = self.hand.write_joint_position_to_sim_index
         self._write_hand_joint_vel = self.hand.write_joint_velocity_to_sim_index
 
+        # RGBD variant: expose the camera image as a top-level observation group.
+        # channels-first (C, H, W) to match what rsl-rl's CNNModel expects for 2D groups.
+        if self.cfg.camera is not None:
+            c, h, w = self.cfg.rgbd_channels, self.cfg.camera.height, self.cfg.camera.width
+            self.single_observation_space["image"] = gym.spaces.Box(
+                0.0, 1.0, (c, h, w), dtype=np.float32
+            )
+            self.observation_space = gym.vector.utils.batch_space(
+                gym.spaces.Dict(self.single_observation_space.spaces), self.num_envs
+            )
+
     def _setup_scene(self):
         # add hand, in-hand object, and goal object
         self.hand = Articulation(self.cfg.robot_cfg)
         self.object = RigidObject(self.cfg.object_cfg)
+        # add RGBD camera (only for the RGBD variant)
+        if self.cfg.camera is not None:
+            self.camera = Camera(self.cfg.camera)
         # add ground plane
         spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg())
         # clone and replicate (no need to filter for this environment)
@@ -151,6 +167,8 @@ class ReorientationEnv(DirectRLEnv):
         # add articulation to scene - we must register to scene to randomize with EventManager
         self.scene.articulations["robot"] = self.hand
         self.scene.rigid_objects["object"] = self.object
+        if self.cfg.camera is not None:
+            self.scene.sensors["camera"] = self.camera
         # add lights
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
@@ -221,6 +239,17 @@ class ReorientationEnv(DirectRLEnv):
         self.obs_hist_buf[:, :, :-1] = self.obs_hist_buf[:, :, 1:]
         self.obs_hist_buf[:, :, -1] = frame
         obs = self.obs_hist_buf.transpose(1, 2).reshape(self.num_envs, -1)
+
+        # RGBD variant: append the camera image as a separate observation group
+        if self.cfg.camera is not None:
+            rgb = self.camera.data.output["rgb"].float() / 255.0
+            depth = torch.clamp(self.camera.data.output["depth"], min=0.0, max=self.cfg.rgbd_depth_clip)
+            depth = depth / self.cfg.rgbd_depth_clip
+            depth = torch.where(torch.isfinite(depth), depth, torch.zeros_like(depth))
+            rgbd = torch.cat([rgb, depth], dim=-1)  # depth output is already (N, H, W, 1)
+            rgbd = rgbd.permute(0, 3, 1, 2)  # (N, H, W, 4) -> (N, 4, H, W) for the CNN
+            return {"policy": obs.float(), "image": rgbd}
+
         return {"policy": obs.float()}
 
     def _get_rewards(self) -> torch.Tensor:

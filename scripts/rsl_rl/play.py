@@ -23,8 +23,10 @@ cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
-# always enable cameras to record video
-if args_cli.video:
+
+# This must be set before AppLauncher creates Kit. These tasks allocate an RTX camera even without video.
+CAMERA_TASKS = {"Isaac-Reorient-Cube-Leap-RGBD", "Isaac-Reorient-Cube-Leap-Realsense-D435"}
+if args_cli.video or args_cli.task in CAMERA_TASKS:
     args_cli.enable_cameras = True
 
 # launch omniverse app
