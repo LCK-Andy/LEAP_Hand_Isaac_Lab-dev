@@ -66,10 +66,14 @@ def main():
         env_cfg.sim.physics.gpu_max_rigid_contact_count = args_cli.max_rigid_contact_count
     if args_cli.max_rigid_patch_count is not None:
         env_cfg.sim.physics.gpu_max_rigid_patch_count = args_cli.max_rigid_patch_count
-    agent_cfg = load_cfg_from_registry(args_cli.task, "rl_games_cfg_entry_point")
-
-    log_root_path = os.path.join("logs", "rl_games", agent_cfg["params"]["config"]["name"])
-    log_root_path = os.path.abspath(log_root_path)
+    log_root_path = None
+    if args_cli.video:
+        task_kwargs = gym.spec(args_cli.task).kwargs
+        if "rl_games_cfg_entry_point" in task_kwargs:
+            agent_cfg = load_cfg_from_registry(args_cli.task, "rl_games_cfg_entry_point")
+            log_root_path = os.path.abspath(os.path.join("logs", "rl_games", agent_cfg["params"]["config"]["name"]))
+        else:
+            log_root_path = os.path.abspath(os.path.join("logs", "random", args_cli.task))
 
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
