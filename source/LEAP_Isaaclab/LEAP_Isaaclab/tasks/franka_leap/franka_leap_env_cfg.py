@@ -56,7 +56,12 @@ class FrankaLeapEnvCfg(DirectRLEnvCfg):
     fingertip_body_names = ["fingertip", "thumb_fingertip", "fingertip_2", "fingertip_3"]
 
     # scene
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=64, env_spacing=1.5, replicate_physics=False)
+    # replicate_physics=True (the Isaac Lab default) is REQUIRED: the
+    # replicate_physics=False clone path never binds simulated poses to the
+    # rendered prims in this Isaac Lab 3.0.0b2 build -- the robot renders
+    # frozen at its spawn pose (looks "exploded" mid-motion) even though the
+    # physics is correct.
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=64, env_spacing=1.5, replicate_physics=True)
 
     # reward scales
     action_penalty_scale = -0.01

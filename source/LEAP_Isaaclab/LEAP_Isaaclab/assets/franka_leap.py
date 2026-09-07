@@ -1,13 +1,15 @@
 """
-Franka Panda arm with a LEAP hand welded to the end-effector flange.
+Franka Panda arm with a welded LEAP hand.
 
-Single 23-DOF articulation (Franka 7-DOF + LEAP 16-DOF) produced by merging
-the Franka arm URDF (flange panda_link8) and the LEAP hand URDF with a fixed
-weld joint. The weld maps the LEAP wrist frame onto the flange such that the
-palm normal (LEAP base +X) aligns with the flange tool axis (+Z): the hand
-extends along the tool direction like a wrist extension.
+Single articulated robot (23 DOF). The policy controls joint position deltas
+for the whole arm+hand. This is a minimal working environment intended as a
+base for task development (grasping, in-hand manipulation, tabletop tasks).
 
-Built from: scripts/build_franka_leap_urdf.py
+Built from: scripts/build_franka_leap_urdf.py + scripts/build_franka_leap_usd.py
+(the latter converts the URDF and patches the articulation to the fixed-base
+leap_hand-style encoding: one ArticulationRootAPI on panda_link0 and no
+importer world joint -- the Isaac Lab 3 URDF-import pipeline emits a floating
+base nondeterministically and its root_joint breaks under env cloning).
 Joint order: panda_joint1..7 (arm), a_0..a_15 (LEAP fingers)
 """
 
@@ -33,13 +35,8 @@ FRANKA_LEAP_DEFAULT_JOINT_POS = {
 }
 
 FRANKA_LEAP_CFG = ArticulationCfg(
-    spawn=sim_utils.UrdfFileCfg(
-        asset_path=str(_ASSET_DIR / "urdf" / "franka_leap.urdf"),
-        usd_dir=str(_ASSET_DIR / "urdf"),
-        usd_file_name="franka_leap.usd",
-        fix_base=True,  # converter fixes the base link to the world (root prim)
-        merge_fixed_joints=False,  # keep panda_link8 flange + LEAP base as rigid bodies
-        force_usd_conversion=False,
+    spawn=sim_utils.UsdFileCfg(
+        usd_path=str(_ASSET_DIR / "franka_leap" / "franka_leap.usd"),
         activate_contact_sensors=False,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
@@ -52,7 +49,16 @@ FRANKA_LEAP_CFG = ArticulationCfg(
             max_contact_impulse=1e32,
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-            enabled_self_collisions=True,
+            # OFF: the converter's coarse convex hulls (palm/wrist region after
+            # fixed-link merging) overlap the straight fingers at the open
+            # pose, holding them ~0.3 rad out of position via self-contacts.
+            # Revisit with the fine LEAP-team collision meshes.
+            enabled_self_collisions=False,
+            # Isaac Lab creates the world->base fixed joint at spawn (the
+            # cloner-safe encoding, same mechanism as the LEAP hand asset).
+            # Works because the pre-built USD carries its single articulation
+            # root API on the base body.
+            fix_root_link=True,
             solver_position_iteration_count=8,
             solver_velocity_iteration_count=0,
             sleep_threshold=0.005,
@@ -65,21 +71,24 @@ FRANKA_LEAP_CFG = ArticulationCfg(
         joint_pos=FRANKA_LEAP_DEFAULT_JOINT_POS,
     ),
     actuators={
-        # arm: same gains as isaaclab_assets FRANKA_PANDA_CFG
+        # arm: strict position-control gains (400/80, cf. Isaac Lab manipulation
+        # demos). The "physically accurate" 80/4 of FRANKA_PANDA_CFG assumes the
+        # official USD's real masses; with this URDF's mesh-density-derived
+        # masses they leave a ~0.21 rad gravity sag at the ready pose.
         "panda_shoulder": ImplicitActuatorCfg(
             joint_names_expr=["panda_joint[1-4]"],
             effort_limit_sim=87.0,
             velocity_limit_sim=2.175,
-            stiffness=80.0,
-            damping=4.0,
+            stiffness=400.0,
+            damping=80.0,
             armature=1e-3,
         ),
         "panda_forearm": ImplicitActuatorCfg(
             joint_names_expr=["panda_joint[5-7]"],
             effort_limit_sim=12.0,
             velocity_limit_sim=2.61,
-            stiffness=80.0,
-            damping=4.0,
+            stiffness=400.0,
+            damping=80.0,
             armature=1e-3,
         ),
         # hand: same gains as LEAP_HAND_CFG (slightly stiff for PD tracking)
@@ -89,6 +98,7 @@ FRANKA_LEAP_CFG = ArticulationCfg(
             velocity_limit_sim=100.0,
             stiffness=3.0,
             damping=0.1,
+            armature=1e-3,
             friction=0.01,
         ),
     },

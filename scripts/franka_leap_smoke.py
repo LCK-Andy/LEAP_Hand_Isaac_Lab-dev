@@ -46,10 +46,10 @@ def main():
     assert robot.num_joints == N_ARM + N_HAND, "expected 23 DOF"
     for name in ["panda_joint1", "panda_joint7", "a_0", "a_15"]:
         assert name in robot.joint_names, f"missing joint {name}"
-    flange_idx = robot.body_names.index("panda_link7")  # importer fuses link8(base+palm) into the wrist link7
+    flange_idx = robot.body_names.index("panda_link7")  # importer fuses link8/base/palm into the wrist link7
     print(
         f"    flange proxy body: panda_link7 (idx {flange_idx}); "
-        f"palm_lower idx {robot.body_names.index('palm_lower')}"
+        f"finger knuckle idx {robot.body_names.index('mcp_joint')}"
     )
 
     obs, _ = env.reset()
