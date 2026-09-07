@@ -32,7 +32,12 @@ AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
 
 # This must be set before AppLauncher creates Kit. These tasks allocate an RTX camera even without video.
-CAMERA_TASKS = {"Isaac-Reorient-Cube-Leap-RGBD", "Isaac-Reorient-Cube-Leap-Realsense-D435"}
+CAMERA_TASKS = {
+    "Isaac-Reorient-Cube-Leap-RGBD",
+    "Isaac-Reorient-Cube-Leap-Realsense-D435",
+    "Isaac-Repose-Cube-LEAP-Direct-v1",
+    "Isaac-Repose-Cube-LEAP-Direct-v2",
+}
 if args_cli.video or args_cli.task in CAMERA_TASKS:
     args_cli.enable_cameras = True
 
