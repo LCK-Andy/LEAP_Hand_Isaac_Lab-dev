@@ -55,3 +55,6 @@ source/LEAP_Isaaclab/LEAP_Isaaclab/assets/ycb/[0-9]*/
 *.usdc
 *.obj
 *.usd.bak
+
+# Mimosa security-scan local state (scan history, hook state, finding ledger, reports)
+.mimosa/
