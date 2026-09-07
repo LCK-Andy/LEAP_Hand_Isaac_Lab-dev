@@ -86,7 +86,7 @@ source/LEAP_Isaaclab/
 - `import LEAP_Isaaclab.tasks` is required **after** `import isaaclab_tasks` in entrypoint scripts so the custom environment gets registered before `hydra_task_config` resolves it.
 - The package name in the import is `LEAP_Isaaclab` (capital L, capital I), matching the directory name exactly.
 - The extension module name in `config/extension.toml` (`[[python.module]] name = "LEAP_Isaaclab"`) must match the import name.
-- `scripts/list_envs.py` searches for `Template-*` prefix — it is an unused artifact from the extension template.
+- `scripts/list_envs.py` lists gym task ids containing "leap" (case-insensitive), so it covers both camelCase `Leap` tasks and all-caps `LEAP` Repose ids; missing from the table ≠ unregistered.
 - No CI workflows exist in this repo.
 
 ## Additional tasks: Franka + LEAP (welded)
@@ -114,9 +114,17 @@ Notes:
 
 `Isaac-Repose-Cube-LEAP-v0` (`Isaac-Repose-Cube-LEAP-Play-v0` for eval) is the official
 manager-based `Isaac-Repose-Cube-Allegro-v0` in-hand task with the Allegro hand swapped
-for the LEAP hand (`tasks/leap_hand_repose/`). Everything else (EMA joint-position actions,
-72-d proprio + object obs, rewards, randomization, terminations) is inherited unchanged
-from `isaaclab_tasks.manager_based.manipulation.inhand`.
+for the LEAP hand (`tasks/leap_hand_repose/`). EMA joint-position actions, 72-d proprio +
+object obs, randomization, and terminations are inherited unchanged from
+`isaaclab_tasks.manager_based.manipulation.inhand`; the rewards extend the two official
+task terms (success bonus, inverse-orientation) with the five shaping terms of the
+7-term reference in-hand reorientation reward (`mdp/rewards.py`): fingertip-object
+distance (-1.0), joint energy |q̇|ᵀ|τ| (-1e-3, replaces `joint_vel_l2`), object-away
+indicator (-1.0 at 0.25 m, below the 0.3 m termination), object-drop indicator
+(weight 0 — no table; dropping already terminates), and fingertip over-curl below the
+palm-base plane (-1.0 per fingertip; the LEAP palm is vertical, so the paper's
+"fingertip above height threshold" maps to tips tucked *below* the hand-root plane —
+tips reach -0.017..+0.01 m rel root at the joint limits, cube at +0.07 m).
 
 | Purpose | Command |
 |---|---|
@@ -124,14 +132,103 @@ from `isaaclab_tasks.manager_based.manipulation.inhand`.
 | Play (RSL-RL) | `python scripts/rsl_rl/play.py --task Isaac-Repose-Cube-LEAP-Play-v0 --num_envs 1` |
 | Headless smoke test | `python scripts/leap_repose_smoke.py` |
 
+Direct variant (`Isaac-Repose-Cube-LEAP-Direct-v0`) — the official
+`Isaac-Repose-Cube-Allegro-Direct-v0` with the hand swapped and the same 7-term
+reference reward (`leap_direct_env.py`: local `LeapHandDirectEnv` subclass overrides
+only `_get_rewards`; `dist_reward_scale` defaults to 0.0 — set -10.0 to restore the
+official dense position term; term-6/7 thresholds are `object_drop_z_offset` /
+`fingertip_overcurl_z_offset`). v1/v2 keep the official reward (their cfgs re-pin
+`dist_reward_scale = -10.0`; to give them the reference reward, parent their envs on
+`LeapHandDirectEnv` and drop the pin).
+
+| Purpose | Command |
+|---|---|
+| Train (RSL-RL) | `python scripts/rsl_rl/train.py --task Isaac-Repose-Cube-LEAP-Direct-v0 --headless` |
+| Headless smoke test | `python scripts/leap_repose_direct_smoke.py` |
+
+Vision variants (both keep the 124-d "policy" obs unchanged; rsl_rl only):
+
+| Task | Added observation | Smoke test |
+|---|---|---|
+| `Isaac-Repose-Cube-LEAP-Direct-v1` | `"image"` (4, 128, 128) RGBD from a downward camera (CNN encoder) | `scripts/leap_repose_direct_v1_smoke.py` |
+| `Isaac-Repose-Cube-LEAP-Direct-v2` | `"points"` (256, 4) object/hand point sets, DP3-style | `scripts/leap_repose_direct_v2_smoke.py` |
+
 Notes:
 - Requires the `env_isaaclab` environment (Isaac Lab 3.0 / Isaac Sim 6.0 / Python 3.12).
-- The cube spawns at `(0.0, -0.10, 0.56)` — the LEAP palm center (Allegro uses `-0.19`).
+- The manager-based cube spawns at `(0.0, -0.10, 0.56)` — the LEAP palm center
+  (Allegro uses `-0.19`); the direct variant uses the same offset (Allegro: `-0.17`)
+  with the official direct-task cube scale `(1.2, 1.2, 1.2)`.
 - The LEAP hand joints are `a_0`..`a_15` (16 DOF, same action dim as Allegro).
-- `agents/rsl_rl_ppo_cfg.py` strips the deprecated rsl_rl<4 model fields
-  (`stochastic`, `init_noise_std`, ...) in `__post_init__`: `isaaclab_rl` 3.0.0b2 still
-  serializes them and rsl-rl-lib 5.0.1's `MLPModel` rejects them (this also breaks the
-  official Allegro task's stock RSL-RL cfg in this env).
+- The direct task uses the local `LeapHandDirectEnv` (`leap_direct_env.py`, subclass of
+  the official shared `InHandManipulationEnv` from
+  `isaaclab_tasks.direct.inhand_manipulation`) — obs/resets/goal bookkeeping are
+  inherited; only `_get_rewards` differs (see the reference-reward note above).
+  124-d "full" obs, 16-d actions.
+- v1 (`leap_direct_v1_env.py`) subclasses it with a top-down RGBD camera; the CNN PPO
+  runner is `agents/rsl_rl_ppo_direct_v1_cfg.py` (it re-attaches the RGBD runner's
+  deprecated-field-stripping `to_dict` after the class body — `@configclass` resets
+  `to_dict` on subclasses).
+- v2 (`leap_direct_v2_env.py`) backprojects the depth camera to a sparse point cloud,
+  split into object/hand sets by color-coded `semantic_segmentation` (the object prim is
+  tagged post-spawn via `add_labels` on the template prim; tags on PresetCfg spawns do
+  not survive, and `instance_segmentation*` annotators DEADLOCK this Isaac Sim build).
+  The model is the DP3-style `LeapPointSetModel` (`point_model.py`: shared per-point
+  MLP + masked max-pool per set), referenced by dotted `class_name` from
+  `agents/rsl_rl_ppo_direct_v2_cfg.py` (`point_split` must equal
+  `num_object_points` in the env cfg).
+- `agents/rsl_rl_ppo_cfg.py` and `agents/rsl_rl_ppo_direct_cfg.py` strip the deprecated
+  rsl_rl<4 model fields (`stochastic`, `init_noise_std`, ...) in `__post_init__`:
+  `isaaclab_rl` 3.0.0b2 still serializes them and rsl-rl-lib 5.0.1's `MLPModel`
+  rejects them (this also breaks the official Allegro tasks' stock RSL-RL cfgs in
+  this env).
+
+## FlashSAC training (off-policy)
+
+`Isaac-Repose-Cube-LEAP-Direct-v0` can be trained with [FlashSAC](https://github.com/Holiday-Robot/FlashSAC)
+inside `env_isaaclab`. FlashSAC pins Isaac Lab 2.3/Python <3.12 upstream, so a patched clone
+lives at `~/Documents/projects/FlashSAC` with these local modifications:
+
+- `flash_rl/types.py` — jax import made optional (only mujoco-playground needs it; the
+  torch path runs jax-free).
+- `flash_rl/envs/isaaclab.py` — custom task packages registered before the task id is
+  resolved via `FLASH_RL_EXTRA_TASK_MODULES=LEAP_Isaaclab.tasks`; action bounds added for
+  `Isaac-Repose-Cube-LEAP-Direct-v0`; when `headless=False` the AppLauncher is given
+  `visualizer=["kit"]` (Isaac Lab 3.0 forces headless unless a Kit visualizer is requested);
+  `install_hold_to_confirm` is generalized to also patch
+  `LeapHandDirectEnv.compute_leap_rewards` (it detects the function via the task module
+  and relies on both reward signatures keeping `success_tolerance` at positional index 14,
+  passing trailing args through — otherwise hold-to-confirm goals would be silently
+  bypassed by the local reward override).
+- `flash_rl/agents/utils/network.py` — `load()` remaps torch.compile's `_orig_mod.` state
+  dict prefix in both directions, so compiled-saved checkpoints load into eager modules.
+- `play_isaaclab.py` — `parse_known_args()` so extra AppLauncher flags pass through.
+- `pyproject.toml` — `requires-python >=3.10` (3.12 allowed) + explicit package discovery,
+  so `pip install -e ~/Documents/projects/FlashSAC --no-deps` works.
+
+| Purpose | Command |
+|---|---|
+| Train (laptop-GPU profile) | `EXP=run1 scripts/flashsac_train_leap_direct.sh` |
+| Play with Isaac Sim GUI | `scripts/flashsac_play_leap_direct.sh` (opts: `--hold_time`, `--action_smooth`) |
+| Monitor | `tensorboard --logdir ~/Documents/projects/FlashSAC/runs` |
+| Checkpoints | `~/Documents/projects/FlashSAC/models/<group>/<exp>/Isaac-Repose-Cube-LEAP-Direct-v0/` |
+
+Training-time behavior knobs (env vars of the train script, also honored at play):
+- `HOLD_TIME` (default `"0.5:1.5"`) — hold-to-confirm goals: the object must keep the
+  target orientation this long before the goal counts and resamples. `"lo:hi"` is
+  randomized per env and per goal; `"1.0"` is fixed; `"0"` disables.
+- `ACT_SMOOTH` (default `0.3`) — joint-target EMA (`act_moving_average`); `1.0` disables.
+- If training crashes with `These live storage data ptrs are in the cudagraph pool`
+  (intermittent torch 2.10 cudagraph-trees bug on this GPU), retry with
+  `--overrides agent.compile_mode=default` (cudagraphs off, inductor still on).
+
+Notes:
+- The script profile (512 envs, 1M CUDA buffer, UTD 1, n-step 3) is sized for the 12 GB
+  RTX 5070 Ti laptop GPU; upstream uses 1024 envs / 10M buffer / UTD 2 — scale via the
+  env vars documented in the script header.
+- `flash_rl` is installed editable into `env_isaaclab`; re-run the pip command after
+  pulling upstream changes into the clone.
+- The Vulkan env-var prefix (`VK_ICD_FILENAMES`, `__NV_PRIME_RENDER_OFFLOAD`) is set by
+  the script itself.
 
 ## Agent skills
 
