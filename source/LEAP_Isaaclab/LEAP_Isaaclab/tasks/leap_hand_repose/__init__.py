@@ -89,3 +89,43 @@ gym.register(
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_direct_v2_cfg:LeapDirectV2PPORunnerCfg",
     },
 )
+
+##
+# Objects variant: the direct task (same LeapHandDirectEnv / 7-term reference
+# reward as v0) generalized to a catalog of different objects (YCB and others)
+# via MultiUsdFileCfg heterogeneous cloning -- each env gets a randomly chosen
+# object; the MDP is inherited unchanged.
+##
+
+gym.register(
+    id="Isaac-Repose-Objects-LEAP-Direct-v0",
+    entry_point=f"{__name__}.leap_objects_direct_env:LeapObjectsDirectEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.leap_objects_direct_env_cfg:LeapObjectsDirectEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_objects_direct_cfg:LeapObjectsDirectPPORunnerCfg",
+        "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_direct_cfg.yaml",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_direct_cfg.yaml",
+    },
+)
+
+##
+# Objects v1: the objects task with the in-hand object's inertial properties
+# (mass, COM, inertia) drawn from the sibling Estimate_weight_distribution
+# ground-truth manifest -- authored on the template prims at spawn and
+# RESAMPLED per episode via the RigidObjectCollection runtime writers. The
+# ground truth stays hidden from the policy (obs unchanged); the catalog is
+# restricted to manifest-covered objects.
+##
+
+gym.register(
+    id="Isaac-Repose-Objects-LEAP-Direct-v1",
+    entry_point=f"{__name__}.leap_objects_direct_v1_env:LeapObjectsDirectV1Env",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.leap_objects_direct_v1_env_cfg:LeapObjectsDirectV1EnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_objects_direct_v1_cfg:LeapObjectsDirectV1PPORunnerCfg",
+        "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_direct_cfg.yaml",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_direct_cfg.yaml",
+    },
+)

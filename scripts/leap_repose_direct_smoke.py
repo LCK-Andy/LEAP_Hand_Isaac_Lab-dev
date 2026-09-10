@@ -4,7 +4,7 @@ Smoke test for the Isaac-Repose-Cube-LEAP-Direct-v0 direct (DirectRLEnv) task.
 Checks, headless, with 4 envs:
   1. The task is registered and the LEAP hand articulation is in the scene
      (16 joints a_0..a_15, LEAP USD spawned) with the 4 LEAP fingertip bodies.
-  2. Reset works and the policy observation is the official 124-d "full" vector
+  2. Reset works and the policy observation is the 136-d vector (124 "full" + 12 tactile)
      (dof pos/vel + object pose/vel + goal terms + 4 fingertips + last action).
   3. Stepping with zero actions (joint targets -> mid-range) keeps rewards finite
      and the cube within the fall radius of the in-hand position.
@@ -53,9 +53,9 @@ def main():
     # [2] reset + observation structure
     obs, _ = env.reset()
     policy_obs = obs["policy"]
-    assert policy_obs.shape == (args_cli.num_envs, 124), f"unexpected obs shape {tuple(policy_obs.shape)}"
+    assert policy_obs.shape == (args_cli.num_envs, 136), f"unexpected obs shape {tuple(policy_obs.shape)}"
     assert torch.isfinite(policy_obs).all(), "non-finite values in policy obs"
-    print(f"[2] reset OK, policy obs shape: {tuple(policy_obs.shape)} (124-d 'full' obs)")
+    print(f"[2] reset OK, policy obs shape: {tuple(policy_obs.shape)} (124 'full' + 12 tactile)")
     print(f"    action space: {env.action_space}")
 
     # [3] step with zero actions (targets saturate to mid-range of joint limits)
@@ -63,6 +63,7 @@ def main():
     rew_sum = 0.0
     for _ in range(60):
         obs, reward, terminated, truncated, extras = env.step(zero_action)
+        assert reward.shape == (args_cli.num_envs,), f"reward shape {tuple(reward.shape)}"
         assert torch.isfinite(reward).all(), "non-finite reward"
         rew_sum += reward.mean().item()
         assert torch.isfinite(obs["policy"]).all(), "non-finite obs while stepping"

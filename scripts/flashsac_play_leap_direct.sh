@@ -14,7 +14,9 @@
 #
 # Options:
 #   --checkpoint, -c DIR   Checkpoint dir (default: newest step*/ of the newest run
-#                          under ~/Documents/projects/FlashSAC/models/leap_direct/)
+#                          under ~/Documents/projects/FlashSAC/models/$GROUP/; GROUP
+#                          env var, default "leap_direct" -- match the training run's
+#                          GROUP, e.g. GROUP=leap_objects for the objects task)
 #   --num-envs, -n N       Parallel envs in the grid (default 16)
 #   --num-episodes N       Episodes before exit (default 50; env var NUM_EPISODES)
 #   -h, --help             This help
@@ -23,8 +25,9 @@ set -euo pipefail
 
 FLASHSAC_DIR="${FLASHSAC_DIR:-$HOME/Documents/projects/FlashSAC}"
 PYTHON="${PYTHON:-$HOME/env_isaaclab/bin/python}"
-TASK="${TASK:-Isaac-Repose-Cube-LEAP-Direct-v0}"
-NUM_ENVS="${NUM_ENVS:-16}"
+TASK="${TASK:-Isaac-Repose-Objects-LEAP-Direct-v0}"
+GROUP="${GROUP:-leap_objects}"
+NUM_ENVS="${NUM_ENVS:-8}"
 NUM_EPISODES="${NUM_EPISODES:-50}"
 CHECKPOINT=""
 FORWARD=()
@@ -41,13 +44,16 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-MODELS_ROOT="$FLASHSAC_DIR/models/leap_direct"
+MODELS_ROOT="$FLASHSAC_DIR/models/$GROUP"
 if [ -z "$CHECKPOINT" ]; then
-    RUN_DIR=$(ls -td "$MODELS_ROOT"/*/"$TASK"/*/ 2>/dev/null | head -1)
-    CHECKPOINT=$(ls -td "$RUN_DIR"/step*/ 2>/dev/null | head -1)
+    # || true: without it, a no-match ls under `set -euo pipefail` kills the
+    # script inside the $() before the error message below can ever print
+    RUN_DIR=$(ls -td "$MODELS_ROOT"/*/"$TASK"/*/ 2>/dev/null | head -1 || true)
+    CHECKPOINT=$(ls -td "$RUN_DIR"/step*/ 2>/dev/null | head -1 || true)
 fi
 if [ ! -d "$CHECKPOINT" ]; then
-    echo "error: checkpoint dir not found: $CHECKPOINT" >&2
+    echo "error: no checkpoint found for GROUP=$GROUP TASK=$TASK under $MODELS_ROOT" >&2
+    echo "hint: train that task/group first (and let it exit), or pass --checkpoint DIR" >&2
     exit 1
 fi
 echo "Playing checkpoint: $CHECKPOINT"

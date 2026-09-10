@@ -12,8 +12,22 @@
 #       + c3 * sum_i ||p^f_i - p^o||^2           (fingertip_dist_penalty_scale)
 #       + c4 * |qdot_t|^T |tau_t|                (joint_energy_penalty_scale)
 #       + c5 * 1(||p^o||^2 > p_bar)              (object_away_penalty_scale)
-#       + c6 * 1(object contacts the table)      (object_drop_penalty_scale)
-#       + c7 * sum_i 1(fingertip over-curled)    (fingertip_overcurl_penalty_scale)
+#       + c6 * 1(object contacts the table)      (object_drop_penalty_scale, REMOVED: 0.0)
+#       + c7 * sum_i 1(fingertip over-curled)    (fingertip_overcurl_penalty_scale, REMOVED: 0.0)
+#       + c8 * sum_i 1(pulp force > f_contact)  (fingertip_contact_scale)
+#       + c9 * 1(object pinned on the palm)     (palm_contact_penalty_scale)
+#       + c10 * 1(at goal, not palm-pinned)     (goal_press_scale)
+#         * sum_i 1(pulp force > f_press)
+#
+# Terms 6/7 are computed but zero-scaled by default (removed at user request,
+# 2026-09-08) -- set their cfg scales nonzero to restore any of them. The
+# tactile terms 8/10 are gated on the MEASURED per-pulp contact forces from
+# the PhysX ContactSensors (filtered vs the in-hand object) -- exactly the
+# signal the real tactile pulps will report -- and the observations carry the
+# same forces as 12 extra channels (4 pulps x 3 components, scaled by
+# force_torque_obs_scale; observation_space 124 -> 136). c9 + the c10 palm
+# gate together make palm-crushing (object sandwiched against the palm) earn
+# zero press bonus and a penalty, so a symmetric fingertip grasp dominates.
 #
 # Observations, actions, resets, and goal bookkeeping are inherited unchanged
 # from the official shared InHandManipulationEnv; only _get_rewards differs.
@@ -23,6 +37,9 @@ from __future__ import annotations
 
 import torch
 
+from isaaclab.assets import Articulation, RigidObject
+from isaaclab.sim import spawners as sim_utils
+from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from isaaclab_tasks.direct.inhand_manipulation.inhand_manipulation_env import (
     InHandManipulationEnv,
     rotation_distance,
@@ -36,12 +53,127 @@ class LeapHandDirectEnv(InHandManipulationEnv):
 
     Identical to the official ``Isaac-Repose-Cube-LEAP-Direct-v0`` environment
     except for the reward: the official dense object-position term is disabled
-    by default (``dist_reward_scale = 0``) and the five shaping terms of the
-    reference reward are added. The official behavior is restored by setting
-    ``dist_reward_scale = -10.0`` and zeroing the new scales in the cfg.
+    by default (``dist_reward_scale = 0``), the five shaping terms of the
+    reference reward are added, and two tactile-oriented terms reward
+    fingertip-contact manipulation (see ``leap_direct_env.py`` header). The
+    official behavior is restored by setting ``dist_reward_scale = -10.0`` and
+    zeroing the new scales in the cfg.
     """
 
     cfg: LeapHandDirectEnvCfg
+
+    def __init__(self, cfg: LeapHandDirectEnvCfg, render_mode: str | None = None, **kwargs):
+        # populated inside _setup_scene (which runs within super().__init__)
+        self.fingertip_contact_sensors: dict = {}
+        super().__init__(cfg, render_mode, **kwargs)
+
+    def _setup_scene(self):
+        # official InHand scene, plus PhysX contact reporters on the pulp links
+        # (pre-clone) and per-pulp ContactSensors (post-clone) -- see the
+        # tactile notes in the module header
+        self.hand = Articulation(self.cfg.robot_cfg)
+        self.object: Articulation | RigidObject = self.cfg.object_cfg.class_type(self.cfg.object_cfg)
+        self._joint_wrench_sensor = None
+        if self.cfg.asymmetric_obs:
+            self._joint_wrench_sensor = self._create_joint_wrench_sensor()
+        self._activate_fingertip_contact_reporters()
+        # add ground plane
+        spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg())
+        # clone and replicate (reporter schemas replicate to every env)
+        self.scene.clone_environments(copy_from_source=False)
+        # register entities (same keys as the official env)
+        self.scene.articulations["robot"] = self.hand
+        self.scene.rigid_objects["object"] = self.object
+        if self._joint_wrench_sensor is not None:
+            self.scene.sensors["joint_wrench"] = self._joint_wrench_sensor
+        self._create_fingertip_contact_sensors([self.cfg.object_cfg.prim_path])
+        # add lights
+        light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
+        light_cfg.func("/World/Light", light_cfg)
+
+    def _activate_fingertip_contact_reporters(self) -> None:
+        """Author PhysxContactReportAPI on the four pulp links of env_0's template.
+
+        Must run BEFORE cloning -- the cloner replicates applied schemas to
+        every env, so one authoring pass on the template suffices. Imports pxr
+        lazily: module-level pxr imports before SimulationApp corrupt the PhysX
+        Kit bindings (same trap as assets/kuka_leap.py).
+        """
+        from isaaclab.sim.schemas.schemas import safe_set_attribute_on_usd_prim
+        from isaaclab.sim.utils.stage import get_current_stage
+
+        stage = get_current_stage()
+        template = "/World/envs/env_0/Robot"
+        num_activated = 0
+        for prim in stage.Traverse():
+            if not prim.GetPath().pathString.startswith(template):
+                continue
+            if prim.GetName() in self.cfg.fingertip_body_names:
+                if "PhysxContactReportAPI" not in prim.GetAppliedSchemas():
+                    prim.AddAppliedSchema("PhysxContactReportAPI")
+                safe_set_attribute_on_usd_prim(prim, "physxContactReport:threshold", 0.0, camel_case=False)
+                num_activated += 1
+        if num_activated != len(self.cfg.fingertip_body_names):
+            raise RuntimeError(
+                f"Expected {len(self.cfg.fingertip_body_names)} pulp links under {template}, "
+                f"found {num_activated} ({self.cfg.fingertip_body_names})"
+            )
+
+    def _create_fingertip_contact_sensors(self, object_filter_exprs: list[str]) -> None:
+        """One filtered ContactSensor per pulp link; run AFTER cloning.
+
+        Each sensor watches a single body per env (required for filtered
+        per-partner force reporting) and reports the net contact force on that
+        pulp against ``object_filter_exprs`` -- the in-hand object(s). Registered
+        in ``scene.sensors`` so ``scene.update(dt)`` refreshes the buffers.
+        """
+        if not getattr(self.cfg, "fingertip_contact_sensors", True):
+            return
+        from isaaclab_physx.sensors.contact_sensor import ContactSensor, ContactSensorCfg
+
+        for body_name in self.cfg.fingertip_body_names:
+            sensor = ContactSensor(
+                ContactSensorCfg(
+                    prim_path=f"/World/envs/env_.*/Robot/{body_name}",
+                    filter_prim_paths_expr=list(object_filter_exprs),
+                    history_length=0,
+                    update_period=0.0,
+                    max_contact_data_count_per_prim=16,
+                )
+            )
+            self.fingertip_contact_sensors[body_name] = sensor
+            self.scene.sensors[f"fingertip_contact:{body_name}"] = sensor
+        print(
+            f"[leap-repose] pulp contact sensors ON: {len(self.fingertip_contact_sensors)} tips x "
+            f"{self.num_envs} envs, filtered vs {len(object_filter_exprs)} object expr(s)"
+        )
+
+    @property
+    def fingertip_contact_forces(self) -> torch.Tensor:
+        """(num_envs, num_fingertips, 3) net contact forces on the pulps [N].
+
+        Zero when the sensors are disabled (``fingertip_contact_sensors`` off).
+        Each sensor reports (num_envs, 1, 3) -- one body per env -- so the
+        singleton body dim is squeezed here (leaving it in would broadcast the
+        reward counts (N, 1) against (N,) terms into an (N, N) outer product).
+        """
+        if not self.fingertip_contact_sensors:
+            return torch.zeros((self.num_envs, len(self.cfg.fingertip_body_names), 3), device=self.device)
+        return torch.stack(
+            [
+                self.fingertip_contact_sensors[n].data.net_forces_w.torch.reshape(self.num_envs, 3)
+                for n in self.cfg.fingertip_body_names
+            ],
+            dim=1,
+        )
+
+    def _get_observations(self) -> dict:
+        # official 124-d "full" obs + 12 tactile channels (4 pulps x 3 filtered
+        # contact-force components), scaled like the official force/torque obs
+        observations = super()._get_observations()
+        tactile = self.fingertip_contact_forces.flatten(1) * self.cfg.force_torque_obs_scale
+        observations["policy"] = torch.cat([observations["policy"], tactile], dim=-1)
+        return observations
 
     def _get_rewards(self) -> torch.Tensor:
         hand_root_pos = self.hand.data.root_pos_w.torch - self.scene.env_origins
@@ -83,6 +215,15 @@ class LeapHandDirectEnv(InHandManipulationEnv):
             self.cfg.object_drop_z_offset,
             self.cfg.fingertip_overcurl_penalty_scale,
             self.cfg.fingertip_overcurl_z_offset,
+            # tactile terms (trailing args; see the fn docstring)
+            self.fingertip_contact_forces,
+            self.cfg.fingertip_contact_scale,
+            self.cfg.fingertip_contact_force,
+            self.cfg.palm_contact_dist,
+            self.cfg.palm_contact_penalty_scale,
+            self.cfg.goal_press_scale,
+            self.cfg.goal_press_tolerance,
+            self.cfg.goal_press_force,
         )
 
         if "log" not in self.extras:
@@ -130,12 +271,26 @@ def compute_leap_rewards(
     object_drop_z_offset: float,
     fingertip_overcurl_penalty_scale: float,
     fingertip_overcurl_z_offset: float,
+    fingertip_forces: torch.Tensor,
+    fingertip_contact_scale: float,
+    fingertip_contact_force: float,
+    palm_contact_dist: float,
+    palm_contact_penalty_scale: float,
+    goal_press_scale: float,
+    goal_press_tolerance: float,
+    goal_press_force: float,
 ):
-    """Official in-hand reward extended with the five reference shaping terms.
+    """Official in-hand reward extended with the reference shaping terms.
 
     All positions are relative to the env origins. ``fingertip_pos`` is
     (num_envs, num_fingertips, 3) and ``object_pos``/``hand_root_pos`` are
-    (num_envs, 3).
+    (num_envs, 3). ``fingertip_forces`` is (num_envs, num_fingertips, 3) --
+    the MEASURED filtered net contact force on each pulp [N]; the tactile
+    terms 8/10 are gated on its magnitude, i.e. exactly the signal the real
+    tactile pulps will report.
+
+    NOTE: ``success_tolerance`` must stay at positional index 14 (the FlashSAC
+    hold-to-confirm hook relies on it and passes trailing args through).
     """
     goal_dist = torch.linalg.norm(object_pos - target_pos, ord=2, dim=-1)
     rot_dist = rotation_distance(object_rot, target_rot)
@@ -159,9 +314,35 @@ def compute_leap_rewards(
     fingertip_overcurl = torch.sum(
         (fingertip_pos[:, :, 2] - hand_root_pos[:, 2:3] < fingertip_overcurl_z_offset).to(action_penalty.dtype), dim=1
     )
+    # term 8: pulp contact -- reward each tip whose MEASURED filtered contact
+    # force (vs the in-hand object) exceeds the threshold; tactile sensors
+    # only sense on contact, so rich multi-tip contact coverage is what makes
+    # the task tactile-driven
+    tip_force_mag = torch.sqrt(torch.sum(fingertip_forces**2, dim=-1))  # (N, F)
+    fingertip_contact = torch.sum(
+        (tip_force_mag > fingertip_contact_force).to(action_penalty.dtype), dim=1
+    )
+    # term 9: object pinned against the palm -- the uninstrumented palm can
+    # carry the object without any fingertip involvement, defeating the
+    # tactile-purpose of the task (object held by the fingers rides ~9 cm from
+    # the hand root; below palm_contact_dist it is tucked into the palm)
+    palm_dist = torch.sqrt(torch.sum((object_pos - hand_root_pos) ** 2, dim=-1))
+    palm_contact = (palm_dist < palm_contact_dist).to(action_penalty.dtype)
+    # term 10: goal-state press -- with the repose DONE (within
+    # goal_press_tolerance of the goal rotation) AND the object NOT palm-
+    # pinned, reward each pulp whose contact force exceeds the press
+    # threshold, i.e. finishing with every pulp preloaded on the object
+    # (tactile preload). The palm gate makes the palm-crush degenerate mode
+    # earn ZERO press bonus (it still pays the term-9 penalty), so a symmetric
+    # fingertip grasp strictly dominates it. Gated on its OWN tolerance knob:
+    # the FlashSAC hold-hook overwrites success_tolerance (positional arg 14)
+    # with -1 inside this function.
+    fingertip_press = torch.sum((tip_force_mag > goal_press_force).to(action_penalty.dtype), dim=1)
+    at_goal = (torch.abs(rot_dist) <= goal_press_tolerance).to(action_penalty.dtype)
+    press_gate = at_goal * (1.0 - palm_contact)
 
     # Total reward is: position distance + orientation alignment + action regularization
-    # + the reference shaping terms + success bonus + fall penalty
+    # + the reference shaping terms + tactile-oriented terms + success bonus + fall penalty
     reward = (
         dist_rew
         + rot_rew
@@ -171,6 +352,9 @@ def compute_leap_rewards(
         + object_away * object_away_penalty_scale
         + object_drop * object_drop_penalty_scale
         + fingertip_overcurl * fingertip_overcurl_penalty_scale
+        + fingertip_contact * fingertip_contact_scale
+        + palm_contact * palm_contact_penalty_scale
+        + fingertip_press * goal_press_scale * press_gate
     )
 
     # Find out which envs hit the goal and update successes count

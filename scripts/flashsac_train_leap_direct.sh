@@ -21,7 +21,9 @@
 #   scripts/flashsac_train_leap_direct.sh
 # Tunables (env vars):
 #   NUM_ENV_STEPS=10485760 NUM_TRAIN_ENVS=512 BUFFER_LEN=1000000 \
-#   UPDATES_PER_STEP=1 GROUP=leap_direct EXP=run1
+#   UPDATES_PER_STEP=1 SAVE_EVERY=10000 GROUP=leap_direct EXP=run1
+#   (SAVE_EVERY is in control iterations; default = one checkpoint per ~10.5M
+#    env-steps. train.py also always writes a "final" checkpoint at the end.)
 # Extra hydra overrides are passed through as script args, e.g.:
 #   scripts/flashsac_train_leap_direct.sh --overrides agent.use_compile=false
 
@@ -29,16 +31,20 @@ set -euo pipefail
 
 FLASHSAC_DIR="${FLASHSAC_DIR:-$HOME/Documents/projects/FlashSAC}"
 PYTHON="${PYTHON:-$HOME/env_isaaclab/bin/python}"
-TASK="${TASK:-Isaac-Repose-Cube-LEAP-Direct-v0}"
-NUM_ENV_STEPS="${NUM_ENV_STEPS:-400485760}"
+TASK="${TASK:-Isaac-Repose-Objects-LEAP-Direct-v0}"
+NUM_ENV_STEPS="${NUM_ENV_STEPS:-850485760}"
 NUM_TRAIN_ENVS="${NUM_TRAIN_ENVS:-4096}"
 BUFFER_LEN="${BUFFER_LEN:-6000000}"
 UPDATES_PER_STEP="${UPDATES_PER_STEP:-1}"
-SAVE_EVERY="${SAVE_EVERY:-2048}"
+# SAVE_EVERY counts CONTROL ITERATIONS (one iteration steps all envs once), NOT
+# env-steps: a checkpoint lands every SAVE_EVERY x NUM_TRAIN_ENVS env-steps. The
+# default auto-scales to ~10.5M env-steps per checkpoint; the old fixed 204800
+# was tuned for 4096-env runs and silently saved NOTHING on shorter/smaller runs.
+SAVE_EVERY="${SAVE_EVERY:-$((10485760 / NUM_TRAIN_ENVS))}"
 HOLD_TIME="${HOLD_TIME:-0.2:1.5}"
 ACT_SMOOTH="${ACT_SMOOTH:-0.2}"
-GROUP="${GROUP:-leap_direct}"
-EXP="${EXP:-run1}"
+GROUP="${GROUP:-leap_objects}"
+EXP="${EXP:-objects-r1}"
 EXTRA_OVERRIDES=("$@")
 
 cd "$FLASHSAC_DIR"

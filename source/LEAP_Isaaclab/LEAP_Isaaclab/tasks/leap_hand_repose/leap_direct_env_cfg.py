@@ -126,7 +126,7 @@ class LeapHandDirectEnvCfg(DirectRLEnvCfg):
     decimation = 4
     episode_length_s = 10.0
     action_space = 16
-    observation_space = 124  # (full)
+    observation_space = 136  # 124 official "full" + 12 pulp contact-force channels (4 tips x 3)
     state_space = 0
     asymmetric_obs = False
     obs_type = "full"
@@ -184,10 +184,32 @@ class LeapHandDirectEnvCfg(DirectRLEnvCfg):
     joint_energy_penalty_scale = -0.001  # term 4: |qdot|^T |tau|
     object_away_penalty_scale = -1.0  # term 5: object pushed away from the in-hand position
     object_away_dist = 0.20  # below fall_dist so the penalty fires before termination
-    object_drop_penalty_scale = 0.0  # term 6 disabled: no table; dropping terminates via fall_dist
+    object_drop_penalty_scale = 0.0  # term 6 removed: no table; dropping terminates via fall_dist
     object_drop_z_offset = -0.05  # term 6: object z relative to the hand root
-    fingertip_overcurl_penalty_scale = -1.0  # term 7: fingertip count over-curled past the object
+    fingertip_overcurl_penalty_scale = 0.0  # term 7 removed (user, 2026-09-08); set -1.0 to restore
     fingertip_overcurl_z_offset = 0.0  # term 7: fingertip z rel hand root; 0.0 = palm-base plane
+    palm_contact_dist = 0.06  # term 9: object closer than this to the hand root counts as palm-pinned [m]
+    palm_contact_penalty_scale = -0.1  # term 9 RESTORED (2026-09-08): guards the palm-crush degenerate mode
+    # tactile terms 8/10 -- gated on MEASURED pulp contact forces (per-tip
+    # ContactSensors filtered vs the in-hand object), i.e. exactly the signal
+    # the real tactile pulps will report
+    fingertip_contact_scale = 0.1  # term 8: reward per pulp with contact force above the threshold (max +0.4/step)
+    fingertip_contact_force = 0.1  # term 8: contact force threshold per pulp [N]
+    # term 10: goal-state press -- when the repose is DONE (within
+    # goal_press_tolerance of the goal rotation) AND the object is NOT
+    # palm-pinned, reward each pulp PRESSED above the force threshold:
+    # finishing with every pulp preloaded on the object (tactile preload).
+    # The palm-pinned gate makes palm-crushing earn ZERO press bonus (plus the
+    # term-9 penalty) -- a symmetric fingertip grasp strictly dominates it.
+    # Separate tolerance knob on purpose: the FlashSAC hold-hook overwrites
+    # success_tolerance (positional arg 14) to -1 inside the base reward.
+    goal_press_scale = 0.5  # per pressed pulp per step while at the goal (max +2.0/step)
+    goal_press_tolerance = 0.2  # rotation-distance gate [rad]; keep == success_tolerance
+    goal_press_force = 3.0  # press force threshold per pulp [N] (calibrated: random-action contacts are multi-N -- nonzero p10 ~2 N, median ~8.5 N)
+    # per-pulp PhysX ContactSensors (filtered vs the in-hand object): tactile
+    # emulation for the pulp sensors to be installed on the real hand; read
+    # env.fingertip_contact_forces (N, 4, 3) [N] -- no observation-space change
+    fingertip_contact_sensors = True
     vel_obs_scale = 0.2
     success_tolerance = 0.2
     max_consecutive_success = 0
