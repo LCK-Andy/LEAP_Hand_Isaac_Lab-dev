@@ -10,7 +10,8 @@ the Allegro hand replaced by a LEAP hand welded onto the Kuka iiwa7 flange
 (23-DOF articulation, see assets/kuka_leap.py).
 """
 
-from isaaclab.assets import ArticulationCfg
+import isaaclab.sim as sim_utils
+from isaaclab.assets import ArticulationCfg, RigidObjectCfg
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import CameraCfg, ContactSensorCfg
@@ -146,11 +147,88 @@ class DexsuiteKukaLeapReorientEnvCfg_PLAY(KukaLeapMixinCfg, dexsuite.DexsuiteReo
     pass
 
 
+# Table geometry of the official dexsuite scene: kinematic slab, center z = 0.235 m, 0.04 m thick.
+TABLE_TOP_Z = 0.235 + 0.04 / 2
+CUBE_SIZE = 0.05
+CUBE_REST_Z = TABLE_TOP_Z + CUBE_SIZE / 2  # cube center height when resting flat on the table
+
+
+def _apply_cube_pick_overrides(env_cfg):
+    """Turn the Dexsuite lift task into a table-top cube pick-up task (Lift + Lift-Play).
+
+    Overrides to the stock Dexsuite lift task:
+    * The object is a fixed 5 cm cube (stock: one random shape from a
+      cuboid/sphere/capsule/cone catalog) that spawns RESTING ON the table with
+      a flat orientation (stock: floats up to 0.4 m above the table with
+      random roll/pitch/yaw).
+    * Gravity is always on (stock: zero-g start ramped to Earth gravity by the
+      ADR curriculum; the ``gravity_adr`` term is disabled here).
+    * The success-colored table proxy markers and the observation point-cloud
+      debug markers are removed so the scene shows only robot, table and cube.
+    """
+    # -- scene: fixed cube resting on the table, in every scene preset
+    # (default/single_camera/duo_camera); only the picked one survives preset
+    # resolution, and these mutations stay local to this task
+    for scene_preset in (env_cfg.scene.default, env_cfg.scene.single_camera, env_cfg.scene.duo_camera):
+        scene_preset.object = RigidObjectCfg(
+            prim_path="{ENV_REGEX_NS}/Object",
+            spawn=sim_utils.CuboidCfg(
+                size=(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE),
+                rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                    solver_position_iteration_count=16,
+                    solver_velocity_iteration_count=0,
+                    disable_gravity=False,
+                ),
+                mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+                collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.002),
+                physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=0.5),
+            ),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=(-0.55, 0.1, CUBE_REST_Z)),
+        )
+
+    # -- reset: cube stays on the table (small x/y jitter, drop of at most
+    # 2 cm onto the surface, flat orientation, random heading)
+    env_cfg.events.reset_object.params["pose_range"] = {
+        "x": [-0.05, 0.05],
+        "y": [-0.05, 0.05],
+        "z": [0.0, 0.02],
+        "roll": [0.0, 0.0],
+        "pitch": [0.0, 0.0],
+        "yaw": [-3.14, 3.14],
+    }
+
+    # -- gravity: always on; drop the stock zero-g ADR ramp
+    env_cfg.events.variable_gravity.params["gravity_distribution_params"] = (
+        (0.0, 0.0, -9.81),
+        (0.0, 0.0, -9.81),
+    )
+    if env_cfg.curriculum is not None:
+        env_cfg.curriculum.gravity_adr = None
+
+    # -- visuals: no success-colored table proxy, no red point-cloud markers
+    env_cfg.commands.object_pose.success_visualizer_cfg.markers = {}
+    for obs_preset in (
+        env_cfg.observations.default,
+        env_cfg.observations.state,
+        env_cfg.observations.single_camera,
+        env_cfg.observations.duo_camera,
+    ):
+        obs_preset.perception.object_point_cloud.params["visualize"] = False
+
+
 @configclass
 class DexsuiteKukaLeapLiftEnvCfg(KukaLeapMixinCfg, dexsuite.DexsuiteLiftEnvCfg):
-    pass
+    """Kuka-LEAP pick-up task: grasp the cube on the table and lift it to the goal position."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        _apply_cube_pick_overrides(self)
 
 
 @configclass
 class DexsuiteKukaLeapLiftEnvCfg_PLAY(KukaLeapMixinCfg, dexsuite.DexsuiteLiftEnvCfg_PLAY):
-    pass
+    """Evaluation variant of the Kuka-LEAP cube pick-up task (max difficulty, goal markers)."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        _apply_cube_pick_overrides(self)
