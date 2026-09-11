@@ -58,3 +58,15 @@ source/LEAP_Isaaclab/LEAP_Isaaclab/assets/ycb/[0-9]*/
 
 # Mimosa security-scan local state (scan history, hook state, finding ledger, reports)
 .mimosa/
+
+# Local agent-tool state (excluded from remote rsync too)
+.claude/
+.serena/
+.mcp.json
+
+# Smoke-test image outputs (written by scripts/*_smoke.py)
+scripts/*_smoke_rgb.png
+scripts/*_smoke_depth.png
+
+# URDF build pipeline state
+source/LEAP_Isaaclab/LEAP_Isaaclab/assets/urdf/.asset_hash
