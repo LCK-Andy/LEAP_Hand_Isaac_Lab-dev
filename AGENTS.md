@@ -15,6 +15,7 @@
 | Play checkpoint | `python scripts/rl_games/play.py --task Isaac-Reorient-Cube-Leap --num_envs 1 [--checkpoint PATH]` |
 | Train (rsl_rl) | `python scripts/rsl_rl/train.py --task Isaac-Reorient-Cube-Leap --headless` |
 | Play (rsl_rl) | `python scripts/rsl_rl/play.py --task Isaac-Reorient-Cube-Leap --num_envs 1` |
+| Train (rsl_rl, kit-less Newton) | `python scripts/rsl_rl/train_kitless.py --task <ID> --headless presets=newton_mjwarp` |
 | Hardware deploy (Python SDK) | `cd source/LEAP_Isaaclab/LEAP_Isaaclab/deployment_scripts && python reorient_z.py` |
 | Hardware deploy (ROS2) | `cd source/LEAP_Isaaclab/LEAP_Isaaclab/deployment_scripts && python reorient_z_ros.py` |
 
@@ -87,6 +88,15 @@ source/LEAP_Isaaclab/
 - The package name in the import is `LEAP_Isaaclab` (capital L, capital I), matching the directory name exactly.
 - The extension module name in `config/extension.toml` (`[[python.module]] name = "LEAP_Isaaclab"`) must match the import name.
 - `scripts/list_envs.py` lists gym task ids containing "leap" (case-insensitive), so it covers both camelCase `Leap` tasks and all-caps `LEAP` Repose ids; missing from the table ≠ unregistered.
+- `scripts/rsl_rl/train_kitless.py` resolves the env cfg BEFORE launching and hands it to
+  `isaaclab_tasks.utils.sim_launcher.launch_simulation`, which starts Kit ONLY when the task
+  needs it (PhysX physics or Kit-rendered cameras); a kit-less physics cfg (e.g. the official
+  tasks' `newton_mjwarp` NewtonCfg preset) runs with NO Isaac Sim at all -- measured 13 s
+  wall for launch+5 iters+checkpoint on `Isaac-Humanoid-v0` vs ~2 min with Kit. Select
+  backend presets via a hydra-style `presets=newton_mjwarp` argument (the classic tasks ship
+  matching physics+observation `newton_mjwarp` PresetCfg alternatives). The script also strips
+  the deprecated rsl_rl<4 model fields from the serialized agent cfg generically (the
+  rsl_rl 5.0.1 `MLPModel` crash that otherwise needs per-cfg `__post_init__` fixes).
 - No CI workflows exist in this repo.
 
 ## Additional tasks: Franka + LEAP (welded)
@@ -381,8 +391,12 @@ official Lift reward terms/weights x step dt; goal pose in the robot-base frame
 resampled on a 2-3 s timer; ADR difficulty 0..10 driving scene gravity 0 -> -9.81
 via the MEAN difficulty — the robot asset has `disable_gravity=True`, so only the
 object feels it — and per-env obs noise; official reset/out-of-bound/velocity-limit
-terminations). Observation is one flat 785-d vector (157 x 5-step history:
-object quat 4, goal pose 7, last action 23, joint pos/vel 46, palm+tip body
+terminations). Observation is one flat 800-d vector (160 x 5-step history:
+object quat 4, object pos 3 (in the robot base frame -- a DELIBERATE addition:
+the official actor sees the object position through the perception group's
+point cloud, which this port drops; the first lift-r1 run plateaued at
+avg_return ~0.18 with ZERO successes over 600M env steps without it), goal
+pose 7, last action 23, joint pos/vel 46, palm+tip body
 states 65, per-tip contact forces 12 -- the four fingertip ContactSensors
 filtered against the object, official prim paths
 `{ENV_REGEX_NS}/Robot/ee_link/<finger>_link_3`, net force per tip in the robot
@@ -436,8 +450,8 @@ Notes:
   TB cadence gotcha: upstream derives logging/metrics cadence from the TOTAL
   budget (logging = num_interaction_steps/100, metrics = /10), so a ~1B-step
   budget logs actor/critic scalars only every ~10M env steps (~30 min) and
-  avg_return every ~100M — the script pins LOG_EVERY (~1M env steps) and
-  METRICS_EVERY (~4M) instead; the x-axis is env steps (iteration x num_envs).
+  avg_return every ~100M — the script pins LOG_EVERY (~1M) and
+  METRICS_EVERY (~0.5M env steps) instead; the x-axis is env steps (iteration x num_envs).
   The script's `${VAR:-default}` tunables honor stale exported values (a leftover
   `BUFFER_LEN=6000000` from a LEAP launch silently overrode the default
   2026-09-10) — the launch banner prints the effective profile. One-off startup
