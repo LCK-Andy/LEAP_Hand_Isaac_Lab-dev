@@ -13,7 +13,7 @@
 # cube spawn is moved to the LEAP palm center (y offset -0.17 -> -0.10).
 # --------------------------------------------------------
 
-from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg
+from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg, NewtonCollisionPipelineCfg
 from isaaclab_ovphysx.physics import OvPhysxCfg
 from isaaclab_physx.physics import PhysxCfg
 
@@ -103,9 +103,27 @@ class PhysicsCfg(PresetCfg):
             cone="elliptic",
             update_data_interval=2,
             iterations=100,
+            # Newton's own collision pipeline instead of MuJoCo's internal
+            # contacts: with use_mujoco_contacts=True the manager's contact
+            # buffer stays empty (nacon 0) even while contacts physically
+            # happen, so the tactile sensors read all-zero.
+            use_mujoco_contacts=False,
         ),
         num_substeps=2,
         debug_mode=False,
+        # The start-of-sim CUDA graph replays the physics step WITHOUT the
+        # per-step contact-sensor refresh (update_contacts + SensorContact.update
+        # read freshly-reset solver buffers, so replayed forces stay zero).
+        # Eager stepping keeps the pulp contact forces live; revisit if newton
+        # makes its graph capture sensor-aware.
+        use_cuda_graph=False,
+        # Pin the collision pipeline's Contacts buffer above the solver's TOTAL
+        # naconmax (nconmax 70 x num_envs): the pipeline's auto-estimate keys
+        # off shape/pair metadata and clamps small (1000 for the cube task),
+        # and SolverMuJoCo.update_contacts raises "naconmax exceeds
+        # contacts.rigid_contact_max" once 70 x num_envs passes it (>= 15 envs).
+        # 2**19 covers 7.4k envs for a few tens of MB of device buffers.
+        collision_cfg=NewtonCollisionPipelineCfg(rigid_contact_max=2**19),
     )
     ovphysx = OvPhysxCfg()
     default = physx

@@ -71,7 +71,7 @@ class LeapHandDirectEnv(InHandManipulationEnv):
         # official InHand scene, plus PhysX contact reporters on the pulp links
         # (pre-clone) and per-pulp ContactSensors (post-clone) -- see the
         # tactile notes in the module header
-        self.hand = Articulation(self.cfg.robot_cfg)
+        self._spawn_hand_articulation()
         self.object: Articulation | RigidObject = self.cfg.object_cfg.class_type(self.cfg.object_cfg)
         self._joint_wrench_sensor = None
         if self.cfg.asymmetric_obs:
@@ -91,6 +91,60 @@ class LeapHandDirectEnv(InHandManipulationEnv):
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
+    def _spawn_hand_articulation(self) -> None:
+        """Spawn the hand with backend-appropriate root fixing.
+
+        Shared by this env's ``_setup_scene`` and the objects env's override
+        (which does not call ``super()._setup_scene``).
+        """
+        if self._physics_backend != "physx":
+            # The stock fix_root_link path needs omni.physx (Kit-only) to author the
+            # world joint. Under kit-less backends we drop it and instead pin the
+            # hand root pxr-style after spawn (see _fix_root_link_kitless).
+            articulation_props = getattr(self.cfg.robot_cfg.spawn, "articulation_props", None)
+            if articulation_props is not None:
+                articulation_props.fix_root_link = False
+        self.hand = Articulation(self.cfg.robot_cfg)
+        if self._physics_backend != "physx":
+            self._fix_root_link_kitless()
+
+    def _fix_root_link_kitless(self) -> None:
+        """pxr-only replacement for ``ArticulationRootPropertiesCfg.fix_root_link``.
+
+        The stock fix_root_link path authors the world joint via omni.physx
+        (Kit-only). Under kit-less backends the same USD authoring is done
+        directly: a ``UsdPhysics.FixedJoint`` welding the hand root link to the
+        world frame, authored on the env_0 template BEFORE cloning so every env
+        gets its own joint. Newton's USD importer compiles the jointed root as a
+        static base -- the same convention as the official Shadow Hand newton
+        USD (``shadow_hand_instanceable_newton.usd``).
+        """
+        from pxr import UsdPhysics
+
+        from isaaclab.sim.utils.stage import get_current_stage
+
+        stage = get_current_stage()
+        template = "/World/envs/env_0/Robot"
+        root_prim = None
+        for prim in stage.Traverse():
+            if not prim.GetPath().pathString.startswith(template):
+                continue
+            if prim.HasAPI(UsdPhysics.ArticulationRootAPI):
+                root_prim = prim
+                break
+        if root_prim is None:
+            raise RuntimeError(f"[leap-repose] no ArticulationRootAPI prim found under {template}")
+        if not root_prim.HasAPI(UsdPhysics.RigidBodyAPI):
+            raise NotImplementedError(
+                f"[leap-repose] articulation prim '{root_prim.GetPath()}' has no RigidBodyAPI; "
+                "cannot weld it to the world (same limitation as the stock fix_root_link)"
+            )
+        joint = UsdPhysics.FixedJoint.Define(stage, root_prim.GetPath().AppendChild("world_fixed_joint"))
+        # body0 unset = the world frame; identity local poses weld the root exactly
+        # at its authored spawn transform (the reset root-pose writes still land).
+        joint.CreateBody1Rel().SetTargets([root_prim.GetPath()])
+        print(f"[leap-repose] kit-less root weld: {joint.GetPath()} body1 -> {root_prim.GetPath()}")
+
     def _activate_fingertip_contact_reporters(self) -> None:
         """Author PhysxContactReportAPI on the four pulp links of env_0's template.
 
@@ -99,6 +153,8 @@ class LeapHandDirectEnv(InHandManipulationEnv):
         lazily: module-level pxr imports before SimulationApp corrupt the PhysX
         Kit bindings (same trap as assets/kuka_leap.py).
         """
+        if self._physics_backend != "physx":
+            return  # PhysxContactReportAPI is a PhysX schema; kit-less backends have no reporter to activate
         from isaaclab.sim.schemas.schemas import safe_set_attribute_on_usd_prim
         from isaaclab.sim.utils.stage import get_current_stage
 
@@ -129,7 +185,13 @@ class LeapHandDirectEnv(InHandManipulationEnv):
         """
         if not getattr(self.cfg, "fingertip_contact_sensors", True):
             return
-        from isaaclab_physx.sensors.contact_sensor import ContactSensor, ContactSensorCfg
+        if self._physics_backend == "physx":
+            from isaaclab_physx.sensors.contact_sensor import ContactSensor, ContactSensorCfg
+        else:
+            # kit-less backends: the isaaclab_newton sensor takes the same
+            # prim_path + filter_prim_paths_expr interface (it warns and ignores
+            # PhysX-only fields like max_contact_data_count_per_prim)
+            from isaaclab_newton.sensors.contact_sensor import ContactSensor, ContactSensorCfg
 
         for body_name in self.cfg.fingertip_body_names:
             sensor = ContactSensor(
@@ -147,6 +209,11 @@ class LeapHandDirectEnv(InHandManipulationEnv):
             f"[leap-repose] pulp contact sensors ON: {len(self.fingertip_contact_sensors)} tips x "
             f"{self.num_envs} envs, filtered vs {len(object_filter_exprs)} object expr(s)"
         )
+
+    @property
+    def _physics_backend(self) -> str:
+        """"physx" (Isaac Sim PhysX), "newton" or "ovphysx" (kit-less) from the sim cfg's physics class."""
+        return type(self.cfg.sim.physics).__name__.removesuffix("Cfg").lower()
 
     @property
     def fingertip_contact_forces(self) -> torch.Tensor:
