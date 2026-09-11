@@ -121,17 +121,25 @@ class LeapObjectsDirectV1Env(LeapObjectsDirectEnv):
         rows = torch.arange(num_resets, device=self.device)
         masses = self._inertial_mass[kk, vids]  # (n, K)
         coms = self._inertial_com[kk, vids]  # (n, K, 3)
-        # the physx backend's set_coms_index takes the full COM POSE (7 floats,
-        # pos + quat xyzw): the manifest COM is expressed in the body frame, so
-        # the COM frame keeps the body orientation (identity quat)
-        com_poses = torch.zeros(num_resets, num_objects, 7, device=self.device)
-        com_poses[..., 0:3] = coms
-        com_poses[..., 6] = 1.0
         # inertia: full 3x3 about the COM in the body-local frame, row-major flatten
         inertias = self._inertial_inertia[kk, vids].reshape(num_resets, num_objects, 9)  # (n, K, 9)
         self.objects.set_masses_index(masses=masses, env_ids=env_ids)
-        self._write_com_poses(com_poses, env_ids)
-        self._write_inertias(inertias, env_ids)
+        if self._physics_backend == "physx":
+            # the physx backend's set_coms_index takes the full COM POSE (7 floats,
+            # pos + quat xyzw): the manifest COM is expressed in the body frame, so
+            # the COM frame keeps the body orientation (identity quat)
+            com_poses = torch.zeros(num_resets, num_objects, 7, device=self.device)
+            com_poses[..., 0:3] = coms
+            com_poses[..., 6] = 1.0
+            self._write_com_poses(com_poses, env_ids)
+            self._write_inertias(inertias, env_ids)
+        else:
+            # kit-less newton backend: the collection's NATIVE writers take exactly
+            # the manifest quantities (COM position (n, K, 3) -- Newton pins the COM
+            # frame to the body frame -- and the full body-local 3x3 inertia (n, K, 9));
+            # the physx raw-view workaround writers don't apply
+            self.objects.set_coms_index(coms=coms, env_ids=env_ids)
+            self.objects.set_inertias_index(inertias=inertias, env_ids=env_ids)
         # ground-truth bookkeeping (smoke tests / logging / estimation work)
         self._inertial_variant_idx[env_ids] = vids
         active = self._active_idx[env_ids]

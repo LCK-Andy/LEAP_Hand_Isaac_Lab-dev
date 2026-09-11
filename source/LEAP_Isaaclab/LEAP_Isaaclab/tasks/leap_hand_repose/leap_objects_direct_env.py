@@ -140,7 +140,8 @@ class LeapObjectsDirectEnv(LeapHandDirectEnv):
 
     def _setup_scene(self):
         # hand: spawned on the template env and cloned, exactly like the official env
-        self.hand = Articulation(self.cfg.robot_cfg)
+        # (kit-less backends get the pxr root weld -- see _spawn_hand_articulation)
+        self._spawn_hand_articulation()
         self._joint_wrench_sensor = None
         if self.cfg.asymmetric_obs:
             self._joint_wrench_sensor = self._create_joint_wrench_sensor()
@@ -218,8 +219,15 @@ class LeapObjectsDirectEnv(LeapHandDirectEnv):
 
         members: dict[str, RigidObjectCfg] = {}
         for member_idx, (name, _) in enumerate(catalog):
-            spawn_from_usd(f"/World/envs/env_0/{name}", object_spawn_cfg(_object_usd(name)))
-            prim = stage.GetPrimAtPath(f"/World/envs/env_0/{name}")
+            # Objects are nested one level deep (env_*/obj/<name>): the newton
+            # RigidObjectCollection builds ONE fnmatch pattern over all members,
+            # wildcarding the segment that differs -- siblings directly under
+            # env_* would give /World/envs/env_*/* whose '*' CROSSES '/' and
+            # would also match the hand articulation (breaking the collection's
+            # floating-base detection and buffer strides). The extra 'obj'
+            # segment pins the pattern to /World/envs/env_*/obj/*.
+            spawn_from_usd(f"/World/envs/env_0/obj/{name}", object_spawn_cfg(_object_usd(name)))
+            prim = stage.GetPrimAtPath(f"/World/envs/env_0/obj/{name}")
             self._author_object_mass(prim, name)
             # hull mode: the wrapper USDs author CollisionAPI on BOTH the object
             # root and the mesh child -- PhysX parses both into TWO identical
@@ -234,7 +242,7 @@ class LeapObjectsDirectEnv(LeapHandDirectEnv):
                     if child.HasAPI(UsdPhysics.CollisionAPI):
                         UsdPhysics.MeshCollisionAPI.Apply(child).CreateApproximationAttr("convexHull")
             members[name] = RigidObjectCfg(
-                prim_path=f"/World/envs/env_.*/{name}",
+                prim_path=f"/World/envs/env_.*/obj/{name}",
                 spawn=None,  # template spawned above; cloning replicates it
                 # the member's default pose IS its parked slot in the far row
                 init_state=RigidObjectCfg.InitialStateCfg(
@@ -264,7 +272,7 @@ class LeapObjectsDirectEnv(LeapHandDirectEnv):
         # per-pulp contact sensors filtered against EVERY catalog member (only
         # the active one is ever in reach, so the filtered net force is exactly
         # the pulp-vs-object contact force)
-        self._create_fingertip_contact_sensors([f"/World/envs/env_.*/{name}" for name, _ in catalog])
+        self._create_fingertip_contact_sensors([f"/World/envs/env_.*/obj/{name}" for name, _ in catalog])
 
         # add lights
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
