@@ -63,6 +63,8 @@ from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import resolve_task_config
 from isaaclab_tasks.utils.sim_launcher import launch_simulation
 
+import LEAP_Isaaclab.tasks  # noqa: F401  (registers the custom gym ids before config resolution)
+
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.deterministic = False
