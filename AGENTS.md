@@ -215,7 +215,7 @@ extra channels (observation_space 124 → 136). Terms 6 (object drop) and 7
 | Purpose | Command |
 |---|---|
 | Train (RSL-RL) | `python scripts/rsl_rl/train.py --task Isaac-Repose-Objects-LEAP-Direct-v0 --headless` |
-| Train (FlashSAC) | `TASK=Isaac-Repose-Objects-LEAP-Direct-v0 EXP=objects-r1 scripts/flashsac_train_leap_direct.sh` |
+| Train (FlashSAC) | `scripts/flashsac.sh train --task Isaac-Repose-Objects-LEAP-Direct-v0` (`--exp` / env vars for the profile) |
 | Headless smoke test | `python scripts/leap_repose_objects_direct_smoke.py` |
 
 Objects v1 variant (`Isaac-Repose-Objects-LEAP-Direct-v1`) — the v0 task with the
@@ -259,7 +259,7 @@ deliberately NOT observed, per the estimation premise). Mechanics:
 | Purpose | Command |
 |---|---|
 | Train (RSL-RL) | `python scripts/rsl_rl/train.py --task Isaac-Repose-Objects-LEAP-Direct-v1 --headless` |
-| Train (FlashSAC) | `TASK=Isaac-Repose-Objects-LEAP-Direct-v1 EXP=objects-v1 scripts/flashsac_train_leap_direct.sh` |
+| Train (FlashSAC) | `scripts/flashsac.sh train --task Isaac-Repose-Objects-LEAP-Direct-v1` |
 | Headless smoke test | `python scripts/leap_repose_objects_direct_v1_smoke.py` |
 
 Notes:
@@ -414,7 +414,7 @@ this build anyway).
 
 | Purpose | Command |
 |---|---|
-| Train (FlashSAC) | `EXP=lift-r1 scripts/flashsac_train_dexsuite_lift.sh` |
+| Train (FlashSAC) | `scripts/flashsac.sh train --task Isaac-Dexsuite-Kuka-Allegro-Lift-Direct-v0` |
 | Headless smoke test | `python scripts/flashsac_dexsuite_lift_smoke.py` |
 
 Notes:
@@ -468,7 +468,10 @@ lives at `~/Documents/projects/FlashSAC` with these local modifications:
   torch path runs jax-free).
 - `flash_rl/envs/isaaclab.py` — custom task packages registered before the task id is
   resolved via `FLASH_RL_EXTRA_TASK_MODULES=LEAP_Isaaclab.tasks`; action bounds added for
-  `Isaac-Repose-Cube-LEAP-Direct-v0`; when `headless=False` the AppLauncher is given
+  `Isaac-Repose-Cube-LEAP-Direct-v0`; `FLASH_RL_PRESET=newton_mjwarp` switches the
+  wrapper to hydra preset resolution + `isaaclab_tasks.utils.sim_launcher.launch_simulation`,
+  which starts Kit ONLY for PhysX/camera tasks — this is what `scripts/flashsac.sh ... --backend newton`
+  uses to train WITHOUT Isaac Sim; when `headless=False` the AppLauncher is given
   `visualizer=["kit"]` (Isaac Lab 3.0 forces headless unless a Kit visualizer is requested);
   `install_hold_to_confirm` is generalized to also patch
   `LeapHandDirectEnv.compute_leap_rewards` (it resolves the function from the globals of
@@ -499,24 +502,76 @@ lives at `~/Documents/projects/FlashSAC` with these local modifications:
 
 | Purpose | Command |
 |---|---|
-| Train (laptop-GPU profile) | `EXP=run1 scripts/flashsac_train_leap_direct.sh` |
-| Play with Isaac Sim GUI | `scripts/flashsac_play_leap_direct.sh` (opts: `--hold_time`, `--action_smooth`) |
+| Train (menu TUI; also `train|play` positional + `--task <full-gym-id> --backend physx|newton`) | `scripts/flashsac.sh` |
+| Train (laptop-GPU profile) | `NUM_TRAIN_ENVS=512 BUFFER_LEN=1000000 scripts/flashsac.sh train --task Isaac-Repose-Cube-LEAP-Direct-v0` |
+| Play with Isaac Sim GUI | `scripts/flashsac.sh play --task Isaac-Repose-Cube-LEAP-Direct-v0` (checkpoint picker; forwards `--hold_time`, `--action_smooth`) |
 | Monitor | `tensorboard --logdir ~/Documents/projects/FlashSAC/runs` |
 | Checkpoints | `~/Documents/projects/FlashSAC/models/<group>/<exp>/Isaac-Repose-Cube-LEAP-Direct-v0/` |
 
-Training-time behavior knobs (env vars of the train script, also honored at play):
-- `HOLD_TIME` (default `"0.5:1.5"`) — hold-to-confirm goals: the object must keep the
-  target orientation this long before the goal counts and resamples. `"lo:hi"` is
-  randomized per env and per goal; `"1.0"` is fixed; `"0"` disables.
-- `ACT_SMOOTH` (default `0.3`) — joint-target EMA (`act_moving_average`); `1.0` disables.
+`scripts/flashsac.sh` (2026-09-11) REPLACES the four former wrappers
+(`flashsac_{train,play}_{leap_direct,dexsuite_lift}.sh`): one menu TUI covering
+task (FULL gym ids; the four known ones are listed, a free-text "other" entry
+accepts any id with generic defaults — group `flashsac`, exp `run1`, play env =
+train env, 1024-env/2M-cpu profile, newton allowed but flagged UNVERIFIED) x
+mode (train/play) x backend (physx = Isaac Sim+PhysX, newton = Newton, no Isaac
+Sim; the old `kit`/`kitless` values print a migration hint). Old nicknames
+(cube/objects/objects-v1/lift) print a migration hint. Every menu choice also has a CLI form (`train|play` positional + `-t/-b` flags; `--mode` prints a migration hint),
+`--dry-run` prints the exec line, unknown args forward verbatim (train: extra
+`--overrides`; play: `play_isaaclab.py` args), and all former env-var knobs
+(`NUM_ENV_STEPS`, `NUM_TRAIN_ENVS`, `BUFFER_LEN`, `BUFFER_DEVICE`,
+`UPDATES_PER_STEP`, `SAVE_EVERY`, `LOG_EVERY`, `METRICS_EVERY`, `HOLD_TIME`,
+`ACT_SMOOTH`, `GROUP`, `EXP`, ...) still win over the built-in defaults (a stale
+exported `FLASH_RL_PRESET` is deliberately UNSET in kit mode). Play picks the
+checkpoint from a listed run menu (GROUP + optional EXP filter, newest step*/
+default) and auto-switches lift to the `-Direct-Play-v0` env (ADR max difficulty).
+
+Kit-less (Newton) training status, measured 2026-09-11
+(`scripts/leap_repose_direct_newton_probe.py --task <id> --curl`, 8-16 envs):
+- cube / objects / objects-v1 BUILD and STEP on `newton_mjwarp` — hand anchored
+  by a pxr `UsdPhysics.FixedJoint` root weld (`_fix_root_link_kitless`), object
+  held (z stable under curl), rewards finite, obs 136-d, and v1's manifest
+  inertial writes go through the newton collection's NATIVE
+  `set_coms_index`/`set_inertias_index` (COM position (n,K,3) + full 3x3
+  body-local inertia (n,K,9) — exactly the manifest semantics).
+- BUT the pulp contact sensors READ ZERO in both contact modes — an
+  isaaclab_newton beta REPORTING gap (physics itself has contacts): with
+  `use_mujoco_contacts=False` the Newton collision pipeline's model ships only
+  8 precomputed `shape_contact_pairs` (ground<->object; NO intra-world pairs),
+  so `collide()` reports nothing; with `use_mujoco_contacts=True` the solver's
+  reported `nacon` stays 0 (freshly-reset buffers). Until fixed upstream, the
+  12 tactile obs channels + reward terms 8/9/10 are dead under kit-less. The
+  TUI prints this warning at newton-backend launch.
+- Objects-task fixes that made kit-less possible (also required for the
+  PhysX path, verified by `scripts/leap_repose_objects_direct_smoke.py`):
+  objects spawn NESTED at `/World/envs/env_*/obj/<name>` — the newton
+  `RigidObjectCollection` builds ONE fnmatch pattern over all members whose `*`
+  CROSSES `/`, so flat sibling prims made the pattern `/World/envs/env_*/*`
+  swallow the hand articulation (view `is_floating_base=False` from the hand's
+  root weld -> `wp.clone(None)` crash in `RigidObjectCollectionData`); and the
+  shared `PhysicsCfg.newton_mjwarp` pins
+  `collision_cfg=NewtonCollisionPipelineCfg(rigid_contact_max=2**19)` because
+  the pipeline's auto-sized Contacts (1000) < the solver's total naconmax
+  (nconmax 70 x num_envs) crashed `SolverMuJoCo.update_contacts` at >= 15 envs.
+- `lift` has NO Newton support (PhysX-only `PhysxContactReportAPI` sensors by
+  design); the TUI refuses newton for the lift task.
+
+Training-time behavior knobs (env vars, also honored at play):
+- `HOLD_TIME` (leap tasks default `"0.2:1.5"`, lift `0`) — hold-to-confirm goals:
+  the object must keep the target orientation this long before the goal counts
+  and resamples. `"lo:hi"` is randomized per env and per goal; `"1.0"` is fixed;
+  `"0"` disables.
+- `ACT_SMOOTH` (leap default `0.2`, lift `1.0` = off) — joint-target EMA
+  (`act_moving_average`).
 - If training crashes with `These live storage data ptrs are in the cudagraph pool`
   (intermittent torch 2.10 cudagraph-trees bug on this GPU), retry with
   `--overrides agent.compile_mode=default` (cudagraphs off, inductor still on).
 
 Notes:
-- The script profile (512 envs, 1M CUDA buffer, UTD 1, n-step 3) is sized for the 12 GB
-  RTX 5070 Ti laptop GPU; upstream uses 1024 envs / 10M buffer / UTD 2 — scale via the
-  env vars documented in the script header.
+- Built-in train profiles: leap tasks 4096 envs / 6M CUDA buffer / UTD 1
+  (12 GB+ GPU, e.g. the 4090 remote); lift 1024 envs / 2M pinned-RAM buffer with
+  pinned TB logging cadences (12 GB laptop GPU — see the lift section's RAM
+  budget). Override per launch with the env vars above; `--dry-run` shows the
+  effective profile.
 - `flash_rl` is installed editable into `env_isaaclab`; re-run the pip command after
   pulling upstream changes into the clone.
 - The Vulkan env-var prefix (`VK_ICD_FILENAMES`, `__NV_PRIME_RENDER_OFFLOAD`) is set by
