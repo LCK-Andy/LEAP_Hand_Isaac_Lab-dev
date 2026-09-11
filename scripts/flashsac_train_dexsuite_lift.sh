@@ -7,8 +7,8 @@
 # trains the DIRECT port registered in LEAP_Isaaclab.tasks.dexsuite_lift_direct
 # (tasks/dexsuite_lift_direct/): the official Lift MDP (relative joint-position
 # actions scale 0.1, official rewards with per-fingertip ContactSensor gates,
-# ADR gravity/noise curriculum) as a DirectRLEnv with one flat 785-d policy
-# observation (157 x 5 history).
+# ADR gravity/noise curriculum) as a DirectRLEnv with one flat 800-d policy
+# observation (160 x 5 history).
 #
 # Usage:
 #   scripts/flashsac_train_dexsuite_lift.sh
@@ -33,8 +33,8 @@
 #                       pays for the sim (~4.6 GB at 512 envs) + networks, so a
 #                       much larger buffer becomes affordable.
 # RAM budget (30 GB laptop, pinned memory cannot swap; Isaac Sim's host process
-# takes ~8-10 GB itself): each 1M transitions of the 785-d obs costs ~5.9 GB
-# (obs + next_obs, float32). The 2M default pins ~12.6 GB -- the practical
+# takes ~8-10 GB itself): each 1M transitions of the 800-d obs costs ~6.0 GB
+# (obs + next_obs, float32). The 2M default pins ~12.8 GB -- the practical
 # ceiling; if the process gets host-OOM-killed or the system stalls in the first
 # minutes, drop to BUFFER_LEN=1500000. The LEAP tasks' 6M buffer needed 35 GB
 # here -- impossible even in RAM alone.
@@ -57,10 +57,11 @@ SAVE_EVERY="${SAVE_EVERY:-$((10485760 / NUM_TRAIN_ENVS))}"
 # (logging = num_interaction_steps/100, metrics = /10), which at a ~1B-step
 # budget means one actor/critic point every ~10M env steps (~30 min) and one
 # avg_return point every ~100M (~5 h). Pin them to wall-clock-friendly cadences
-# instead: LOG_EVERY ~1M env steps, METRICS_EVERY ~4M (both in CONTROL
-# ITERATIONS, like SAVE_EVERY).
+# instead: LOG_EVERY ~1M env steps and METRICS_EVERY ~0.5M (avg_return/length/
+# success are rollout-window averages, so logging them often is free; both knobs
+# are in CONTROL ITERATIONS, like SAVE_EVERY).
 LOG_EVERY="${LOG_EVERY:-$((1048576 / NUM_TRAIN_ENVS))}"
-METRICS_EVERY="${METRICS_EVERY:-$((4194304 / NUM_TRAIN_ENVS))}"
+METRICS_EVERY="${METRICS_EVERY:-$((524288 / NUM_TRAIN_ENVS))}"
 HOLD_TIME="${HOLD_TIME:-0}"
 ACT_SMOOTH="${ACT_SMOOTH:-1.0}"
 GROUP="${GROUP:-dexsuite}"

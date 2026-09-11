@@ -107,8 +107,8 @@ class DexsuiteKukaAllegroLiftDirectEnvCfg(DirectRLEnvCfg):
 
     # 23 joint-position deltas (KUKA 7 + Allegro 16); relative control with scale 0.1
     action_space: int = 23
-    # 157 per step x 5-step history -- see the env module for the breakdown
-    observation_space: int = 785
+    # 160 per step x 5-step history -- see the env module for the breakdown
+    observation_space: int = 800
 
     sim: SimulationCfg = SimulationCfg(
         dt=1.0 / 120.0,

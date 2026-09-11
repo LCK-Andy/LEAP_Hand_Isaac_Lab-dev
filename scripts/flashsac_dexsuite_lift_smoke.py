@@ -4,7 +4,7 @@ Exercises the customized direct task end-to-end (flash_rl.envs.isaaclab, not a
 direct gym make) to verify:
   * the task registers via FLASH_RL_EXTRA_TASK_MODULES (LEAP_Isaaclab.tasks)
   * action bounds 0.1 and the 23-d action space (KUKA 7 + Allegro 16)
-  * the flat policy observation: 157/step x 5 history = 785-d
+  * the flat policy observation: 160/step x 5 history = 800-d
   * reset/step paths, finite rewards, terminations, forced reset (ADR update)
 
 Usage:
@@ -22,7 +22,7 @@ from flash_rl.envs.isaaclab import ACTION_BOUNDS, make_isaaclab_env  # noqa: E40
 
 TASK = "Isaac-Dexsuite-Kuka-Allegro-Lift-Direct-v0"
 NUM_ENVS = 8
-OBS_DIM = 5 * (4 + 7 + 23 + 23 + 23 + 5 * 13 + 4 * 3)  # 785
+OBS_DIM = 5 * (4 + 3 + 7 + 23 + 23 + 23 + 5 * 13 + 4 * 3)  # 800
 ACTION_DIM = 23
 
 

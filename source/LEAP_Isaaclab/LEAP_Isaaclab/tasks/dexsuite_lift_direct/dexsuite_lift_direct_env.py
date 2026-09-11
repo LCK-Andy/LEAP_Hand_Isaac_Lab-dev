@@ -4,17 +4,23 @@ The official task is manager-based and splits its observation across the
 ``policy`` / ``proprio`` / ``perception`` groups of the dexsuite cfg, which
 off-policy stacks that only read ``"policy"`` (FlashSAC's ``flash_rl`` wrapper)
 cannot consume. This env re-implements the same MDP as a single ``DirectRLEnv``
-with one flat 785-d policy observation (157 x 5-step history).
+with one flat 800-d policy observation (160 x 5-step history).
 
 Port map (official -> here):
   * actions: RelativeJointPositionAction over all 23 joints, scale 0.1
     (target = current joint pos + 0.1 * action, recomputed each physics substep)
-  * observations: object_quat_b (4) + goal pose in robot-base frame (7) +
-    last action (23) + joint pos (23) + joint vel (23) + palm/tip body states
-    in the base frame (5 x 13 = 65) + per-tip contact forces in the base frame
-    (4 x 3 = 12, from the four fingertip ContactSensors filtered against the
-    object, clipped to +-20 N), with the official ADR-scaled uniform noises
-    and clips
+  * observations: object_quat_b (4) + object_pos_b (3) + goal pose in
+    robot-base frame (7) + last action (23) + joint pos (23) + joint vel (23) +
+    palm/tip body states in the base frame (5 x 13 = 65) + per-tip contact
+    forces in the base frame (4 x 3 = 12, from the four fingertip
+    ContactSensors filtered against the object, clipped to +-20 N), with the
+    official ADR-scaled uniform noises and clips. object_pos_b is a DELIBERATE
+    addition over the official obs list: the official actor sees the object's
+    position through the perception group's 64-point object point cloud, which
+    this flat-state port does not carry -- without it the policy observes the
+    cube's orientation but not its location (the first lift-r1 run plateaued at
+    avg_return ~0.18 with ZERO successes over 600M env steps for exactly this
+    reason; fixed 2026-09-10).
   * contact gating: the official per-fingertip ContactSensors with the official
     force thresholds -- fingers_to_object's contact bonus gates at 1.0 N,
     good_finger_contact / position_tracking at 0.1 N, success (and its sticky
@@ -64,7 +70,7 @@ from isaaclab.utils.math import (
 from .dexsuite_lift_direct_env_cfg import DexsuiteKukaAllegroLiftDirectEnvCfg
 
 # per-step observation layout (see module docstring)
-OBS_PER_STEP = 4 + 7 + 23 + 23 + 23 + 5 * 13 + 4 * 3  # 157
+OBS_PER_STEP = 4 + 3 + 7 + 23 + 23 + 23 + 5 * 13 + 4 * 3  # 160
 
 
 class DexsuiteKukaAllegroLiftDirectEnv(DirectRLEnv):
@@ -155,7 +161,7 @@ class DexsuiteKukaAllegroLiftDirectEnv(DirectRLEnv):
         self._goal_time_left[env_ids] = sample_uniform(*cfg.goal_resample_time_range, (n,), self.device)
 
     def _compute_current_obs(self) -> torch.Tensor:
-        """One step of the (noisy) observation. Shape (num_envs, 157)."""
+        """One step of the (noisy) observation. Shape (num_envs, 160)."""
         cfg = self.cfg
         robot, obj = self._robot, self._object
         n = self.num_envs
@@ -173,6 +179,10 @@ class DexsuiteKukaAllegroLiftDirectEnv(DirectRLEnv):
 
         object_quat_b = quat_mul(quat_inv(root_quat), obj.data.root_quat_w.torch)
         object_quat_b = object_quat_b + noise(object_quat_b.shape, cfg.object_quat_noise)
+
+        # object position in the robot base frame (official object_pos_b formula);
+        # stands in for the official perception group's point cloud
+        object_pos_b = quat_apply_inverse(root_quat, obj.data.root_pos_w.torch - root_pos)
 
         joint_pos = robot.data.joint_pos.torch + noise((n, self.cfg.action_space), cfg.joint_pos_noise)
         joint_vel = robot.data.joint_vel.torch + noise((n, self.cfg.action_space), cfg.joint_vel_noise)
@@ -202,7 +212,8 @@ class DexsuiteKukaAllegroLiftDirectEnv(DirectRLEnv):
         forces_b = quat_apply_inverse(root_quat_f, forces_w).view(n, -1).clamp(-20.0, 20.0)
 
         return torch.cat(
-            (object_quat_b, self._goal_pose_b, self.actions, joint_pos, joint_vel, tips, forces_b), dim=1
+            (object_quat_b, object_pos_b, self._goal_pose_b, self.actions, joint_pos, joint_vel, tips, forces_b),
+            dim=1,
         )
 
     ##
