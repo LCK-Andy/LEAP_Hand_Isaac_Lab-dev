@@ -122,8 +122,8 @@ class PhysicsCfg(PresetCfg):
         # off shape/pair metadata and clamps small (1000 for the cube task),
         # and SolverMuJoCo.update_contacts raises "naconmax exceeds
         # contacts.rigid_contact_max" once 70 x num_envs passes it (>= 15 envs).
-        # 2**19 covers 7.4k envs for a few tens of MB of device buffers.
-        collision_cfg=NewtonCollisionPipelineCfg(rigid_contact_max=2**19),
+        # 2**20 covers 14.9k envs for a few tens of MB of device buffers.
+        collision_cfg=NewtonCollisionPipelineCfg(rigid_contact_max=2**20),
     )
     ovphysx = OvPhysxCfg()
     default = physx
