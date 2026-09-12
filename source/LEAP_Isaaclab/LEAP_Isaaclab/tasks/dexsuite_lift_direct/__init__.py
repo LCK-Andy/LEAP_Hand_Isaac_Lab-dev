@@ -10,11 +10,10 @@ Train with FlashSAC via ``scripts/flashsac.sh`` (``train --task Isaac-Dexsuite-K
 
 import gymnasium as gym
 
-from .dexsuite_lift_direct_env import DexsuiteKukaAllegroLiftDirectEnv
-from .dexsuite_lift_direct_env_cfg import (
-    DexsuiteKukaAllegroLiftDirectEnvCfg,
-    DexsuiteKukaAllegroLiftDirectEnvCfg_PLAY,
-)
+# Keep registration fully lazy (string entry points only, no module imports):
+# importing the env class eagerly pulls in isaaclab.envs.DirectRLEnv and with it
+# isaacsim/carb/omni.kit.app BEFORE SimulationApp exists, which natively crashes
+# Kit startup (all sibling task packages are imported together at registration).
 
 ##
 # Register Gym environments.
@@ -24,12 +23,12 @@ gym.register(
     id="Isaac-Dexsuite-Kuka-Allegro-Lift-Direct-v0",
     entry_point=f"{__name__}.dexsuite_lift_direct_env:DexsuiteKukaAllegroLiftDirectEnv",
     disable_env_checker=True,
-    kwargs={"env_cfg_entry_point": DexsuiteKukaAllegroLiftDirectEnvCfg},
+    kwargs={"env_cfg_entry_point": f"{__name__}.dexsuite_lift_direct_env_cfg:DexsuiteKukaAllegroLiftDirectEnvCfg"},
 )
 
 gym.register(
     id="Isaac-Dexsuite-Kuka-Allegro-Lift-Direct-Play-v0",
     entry_point=f"{__name__}.dexsuite_lift_direct_env:DexsuiteKukaAllegroLiftDirectEnv",
     disable_env_checker=True,
-    kwargs={"env_cfg_entry_point": DexsuiteKukaAllegroLiftDirectEnvCfg_PLAY},
+    kwargs={"env_cfg_entry_point": f"{__name__}.dexsuite_lift_direct_env_cfg:DexsuiteKukaAllegroLiftDirectEnvCfg_PLAY"},
 )
