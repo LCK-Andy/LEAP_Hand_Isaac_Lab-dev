@@ -71,7 +71,7 @@ source/LEAP_Isaaclab/
 
 - **Line length**: 120 (Black, flake8, isort, pyright all agree).
 - **Docstrings**: Google-style (configured in `.flake8`).
-- **Pre-commit hooks**: `pre-commit run --all-files` (9 hooks: black, flake8, isort, pyupgrade, codespell, pygrep-hooks, generic checks).
+- **Pre-commit hooks**: `pre-commit run --all-files` (20 hooks across 7 repos: black, flake8, isort, pyupgrade, codespell, pygrep-hooks, generic checks).
 - **isort**: custom section `ISAACLABPARTY` between THIRDPARTY and FIRSTPARTY for `isaaclab*` imports. Scientific libs (numpy, torch, gymnasium, etc.) are treated as `extra_standard_library`.
 - **pyright**: `typeCheckingMode = "basic"` (not strict). Many checks disabled (`reportMissingImports`, `reportGeneralTypeIssues`). Not enforced by pre-commit.
 - **Wildcard imports**: `from .tasks import *` and `import_packages()` are the Isaac Lab registration pattern — never remove them.
@@ -435,18 +435,19 @@ Notes:
   300/45..25/15, finger gains 3/0.1, finger effort 0.5 Nm, armature 0.01 — much
   softer fingers than the LEAP hand.
 - Default `scene.num_envs` 1024 with the same unread-PhysX-buffer caveat as the
-  LEAP repose tasks; the train script's laptop profile is 512 envs.
+  LEAP repose tasks; the train script's laptop profile is 1024 envs.
   MEASURED VRAM at 512 envs: sim ~4.6 GB (self-colliding 23-DOF arm + 4 contact
-  sensors/env + Isaac Sim base); each 1M transitions of the 785-d obs costs
-  ~5.9 GB for obs+next_obs in float32. The script's BUFFER_DEVICE knob picks the
+  sensors/env + Isaac Sim base); each 1M transitions of the 800-d obs costs
+  ~6.0 GB for obs+next_obs in float32. The script's BUFFER_DEVICE knob picks the
   replay-buffer placement: `cpu` (default) hosts the buffer in PINNED system RAM
   (flash_rl allocates pin_memory=True and the agent copies each 2048-row
   mini-batch to GPU with non_blocking=True -- ~13 MB/update, measured NO
-  slowdown at UTD 1); `cuda` needs ~4.6+5.9x(buffer/1M) GB of the 12 GB. RAM
+  slowdown at UTD 1); `cuda` needs ~4.6+6.0x(buffer/1M) GB of the 12 GB. RAM
   budget on the 30 GB laptop (pinned memory cannot swap; Isaac Sim's host
-  process takes ~8-10 GB): the 2M script default pins ~12.6 GB -- the practical
-  ceiling, fall back to 1.5M on host-OOM; the LEAP-style 6M would need ~35 GB
-  and OOMs as exactly `17.55 GiB` (= 6M x 785 x 4 B).
+  process takes ~8-10 GB): the 2M script default pins ~12.8 GB -- the practical
+  ceiling, fall back to 1.5M on host-OOM; the LEAP-style 6M would need ~36 GB
+  and OOMs (measured exactly `17.55 GiB` at the old 785-d obs = 6M x 785 x 4 B;
+  the 800-d obs sizes to 6M x 800 x 4 B = 17.9 GiB).
   TB cadence gotcha: upstream derives logging/metrics cadence from the TOTAL
   budget (logging = num_interaction_steps/100, metrics = /10), so a ~1B-step
   budget logs actor/critic scalars only every ~10M env steps (~30 min) and
@@ -549,7 +550,7 @@ Kit-less (Newton) training status, measured 2026-09-11
   swallow the hand articulation (view `is_floating_base=False` from the hand's
   root weld -> `wp.clone(None)` crash in `RigidObjectCollectionData`); and the
   shared `PhysicsCfg.newton_mjwarp` pins
-  `collision_cfg=NewtonCollisionPipelineCfg(rigid_contact_max=2**19)` because
+  `collision_cfg=NewtonCollisionPipelineCfg(rigid_contact_max=2**20)` because
   the pipeline's auto-sized Contacts (1000) < the solver's total naconmax
   (nconmax 70 x num_envs) crashed `SolverMuJoCo.update_contacts` at >= 15 envs.
 - `lift` has NO Newton support (PhysX-only `PhysxContactReportAPI` sensors by
