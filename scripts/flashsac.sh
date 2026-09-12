@@ -379,10 +379,14 @@ if [ "$BACKEND" = newton ]; then
 else
     unset FLASH_RL_PRESET
 fi
-# hybrid-graphics laptop: render / compute on the NVIDIA dGPU
-export __NV_PRIME_RENDER_OFFLOAD=1
-export __GLX_VENDOR_LIBRARY_NAME=nvidia
-export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/nvidia_icd.json}"
+# hybrid-graphics laptop: render / compute on the NVIDIA dGPU.
+# Guarded by the ICD file: on headless servers (AutoDL etc.) the path does not
+# exist and a bogus VK_ICD_FILENAMES natively crashes Kit at startup.
+if [ -f /usr/share/vulkan/icd.d/nvidia_icd.json ]; then
+    export __NV_PRIME_RENDER_OFFLOAD=1
+    export __GLX_VENDOR_LIBRARY_NAME=nvidia
+    export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/nvidia_icd.json}"
+fi
 
 if [ "$MODE" = train ]; then
     CMD=( "$PYTHON" train.py
