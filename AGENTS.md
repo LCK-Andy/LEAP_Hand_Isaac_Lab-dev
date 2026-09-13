@@ -87,7 +87,7 @@ source/LEAP_Isaaclab/
 - `import LEAP_Isaaclab.tasks` is required **after** `import isaaclab_tasks` in entrypoint scripts so the custom environment gets registered before `hydra_task_config` resolves it.
 - The package name in the import is `LEAP_Isaaclab` (capital L, capital I), matching the directory name exactly.
 - The extension module name in `config/extension.toml` (`[[python.module]] name = "LEAP_Isaaclab"`) must match the import name.
-- `scripts/list_envs.py` lists gym task ids containing "leap" (case-insensitive), so it covers both camelCase `Leap` tasks and all-caps `LEAP` Repose ids; missing from the table ≠ unregistered.
+- `scripts/utils/list_envs.py` lists gym task ids containing "leap" (case-insensitive), so it covers both camelCase `Leap` tasks and all-caps `LEAP` Repose ids; missing from the table ≠ unregistered.
 - `scripts/rsl_rl/train_kitless.py` resolves the env cfg BEFORE launching and hands it to
   `isaaclab_tasks.utils.sim_launcher.launch_simulation`, which starts Kit ONLY when the task
   needs it (PhysX physics or Kit-rendered cameras); a kit-less physics cfg (e.g. the official
@@ -106,10 +106,10 @@ gym task `Isaac-Franka-Leap` (DirectRLEnv, `tasks/franka_leap/`).
 
 | Purpose | Command |
 |---|---|
-| Rebuild merged URDF | `python scripts/build_franka_leap_urdf.py` |
-| Rebuild pre-built robot USD | `python scripts/build_franka_leap_usd.py` (required after URDF changes) |
-| Headless smoke test | `python scripts/franka_leap_smoke.py` |
-| Render demo video | `python scripts/franka_leap_demo.py` |
+| Rebuild merged URDF | `python scripts/assets/build_franka_leap_urdf.py` |
+| Rebuild pre-built robot USD | `python scripts/assets/build_franka_leap_usd.py` (required after URDF changes) |
+| Headless smoke test | `python scripts/smoke/franka_leap_smoke.py` |
+| Render demo video | `python scripts/demos/franka_leap_demo.py` |
 
 Notes:
 - The merged URDF lives at `source/LEAP_Isaaclab/LEAP_Isaaclab/assets/urdf/franka_leap.urdf`
@@ -165,7 +165,7 @@ tips reach -0.017..+0.01 m rel root at the joint limits, cube at +0.07 m).
 |---|---|
 | Train (RSL-RL) | `python scripts/rsl_rl/train.py --task Isaac-Repose-Cube-LEAP-v0 --headless` |
 | Play (RSL-RL) | `python scripts/rsl_rl/play.py --task Isaac-Repose-Cube-LEAP-Play-v0 --num_envs 1` |
-| Headless smoke test | `python scripts/leap_repose_smoke.py` |
+| Headless smoke test | `python scripts/smoke/leap_repose_smoke.py` |
 
 Direct variant (`Isaac-Repose-Cube-LEAP-Direct-v0`) — the official
 `Isaac-Repose-Cube-Allegro-Direct-v0` with the hand swapped and the reference
@@ -181,14 +181,14 @@ parent their envs on `LeapHandDirectEnv` and drop the pin).
 | Purpose | Command |
 |---|---|
 | Train (RSL-RL) | `python scripts/rsl_rl/train.py --task Isaac-Repose-Cube-LEAP-Direct-v0 --headless` |
-| Headless smoke test | `python scripts/leap_repose_direct_smoke.py` |
+| Headless smoke test | `python scripts/smoke/leap_repose_direct_smoke.py` |
 
 Vision variants (both keep the 124-d "policy" obs unchanged; rsl_rl only):
 
 | Task | Added observation | Smoke test |
 |---|---|---|
-| `Isaac-Repose-Cube-LEAP-Direct-v1` | `"image"` (4, 128, 128) RGBD from a downward camera (CNN encoder) | `scripts/leap_repose_direct_v1_smoke.py` |
-| `Isaac-Repose-Cube-LEAP-Direct-v2` | `"points"` (256, 4) object/hand point sets, DP3-style | `scripts/leap_repose_direct_v2_smoke.py` |
+| `Isaac-Repose-Cube-LEAP-Direct-v1` | `"image"` (4, 128, 128) RGBD from a downward camera (CNN encoder) | `scripts/smoke/leap_repose_direct_v1_smoke.py` |
+| `Isaac-Repose-Cube-LEAP-Direct-v2` | `"points"` (256, 4) object/hand point sets, DP3-style | `scripts/smoke/leap_repose_direct_v2_smoke.py` |
 
 Objects variant (`Isaac-Repose-Objects-LEAP-Direct-v0`) — the v0 task (same
 `LeapHandDirectEnv` MDP + reference reward) with the in-hand object
@@ -215,8 +215,8 @@ extra channels (observation_space 124 → 136). Terms 6 (object drop) and 7
 | Purpose | Command |
 |---|---|
 | Train (RSL-RL) | `python scripts/rsl_rl/train.py --task Isaac-Repose-Objects-LEAP-Direct-v0 --headless` |
-| Train (FlashSAC) | `scripts/flashsac.sh train --task Isaac-Repose-Objects-LEAP-Direct-v0` (`--exp` / env vars for the profile) |
-| Headless smoke test | `python scripts/leap_repose_objects_direct_smoke.py` |
+| Train (FlashSAC) | `scripts/launch/flashsac.sh train --task Isaac-Repose-Objects-LEAP-Direct-v0` (`--exp` / env vars for the profile) |
+| Headless smoke test | `python scripts/smoke/leap_repose_objects_direct_smoke.py` |
 
 Objects v1 variant (`Isaac-Repose-Objects-LEAP-Direct-v1`) — the v0 task with the
 in-hand object's inertial properties drawn from the sibling
@@ -228,7 +228,7 @@ deliberately NOT observed, per the estimation premise). Mechanics:
   real-YCB objects x 6 density strategies = 78 variants; mass [kg], COM [m],
   full 3x3 inertia about the COM [kg*m^2], principal moments/axes + their
   quaternion, per-entry friction) by
-  `python scripts/generate_ycb_inertial_manifest.py` (env_isaaclab + `pip
+  `python scripts/assets/generate_ycb_inertial_manifest.py` (env_isaaclab + `pip
   install defusedxml`; imports the sibling's `synthetic_density/inertial.py`
   STANDALONE via importlib — the package `__init__` pulls `gmsh`; ~13 min for
   the 500k-tet graphs). Values are in the YCB canonical mesh frame == the
@@ -259,11 +259,11 @@ deliberately NOT observed, per the estimation premise). Mechanics:
 | Purpose | Command |
 |---|---|
 | Train (RSL-RL) | `python scripts/rsl_rl/train.py --task Isaac-Repose-Objects-LEAP-Direct-v1 --headless` |
-| Train (FlashSAC) | `scripts/flashsac.sh train --task Isaac-Repose-Objects-LEAP-Direct-v1` |
-| Headless smoke test | `python scripts/leap_repose_objects_direct_v1_smoke.py` |
+| Train (FlashSAC) | `scripts/launch/flashsac.sh train --task Isaac-Repose-Objects-LEAP-Direct-v1` |
+| Headless smoke test | `python scripts/smoke/leap_repose_objects_direct_v1_smoke.py` |
 
 Notes:
-- `scripts/random_agent.py` mirrors the official Isaac Lab random-agent API
+- `scripts/agents/random_agent.py` mirrors the official Isaac Lab random-agent API
   (`scripts/environments/random_agent.py`: --task/--num_envs/--disable_fabric +
   launcher args, Kit visualizer on by default, runs until the window closes) with
   opt-in `--verify` for the correctness checks. Two deviations required by this
@@ -312,7 +312,7 @@ Notes:
   the env strips the root API and authors an explicit
   `UsdPhysics.MeshCollisionAPI physics:approximation = "convexHull"` on the
   mesh, which also silences the fallback parse-error spam). MEASURED cost at
-  1024 envs (`scripts/bench_collision_proxy.py`, 300 random-action steps):
+  1024 envs (`scripts/assets/bench_collision_proxy.py`, 300 random-action steps):
   hull 32.5 ms/step (2.8 GiB, 0 patch overflows), 14 spheres 106.8 ms/step
   (4.6 GiB, 3 overflows), 50 spheres 222.5 ms/step (11.4 GiB -- near the
   12 GiB limit -- and 245 patch overflows, i.e. DROPPED contact patches).
@@ -326,7 +326,7 @@ Notes:
   1. `cd ~/Documents/projects/MorphIt && PYTHONPATH=src ./venv/bin/python run_ycb.py
      --num-spheres 14 --out-dir results/ycb` (the venv's torch was upgraded to
      2.9.1+cu128 -- the pinned cu126 build has no kernels for the RTX 5070 Ti)
-  2. `~/env_isaaclab/bin/python scripts/generate_sphere_proxy_usd.py
+  2. `~/env_isaaclab/bin/python scripts/assets/generate_sphere_proxy_usd.py
      --results ~/Documents/projects/MorphIt/results/ycb --out <YCB_DIR>/spheres`
      (strips the mesh CollisionAPI -- merely disabling it still makes PhysX
      parse-and-warn -- and adds the sphere colliders; visual mesh unchanged)
@@ -414,8 +414,8 @@ this build anyway).
 
 | Purpose | Command |
 |---|---|
-| Train (FlashSAC) | `scripts/flashsac.sh train --task Isaac-Dexsuite-Kuka-Allegro-Lift-Direct-v0` |
-| Headless smoke test | `python scripts/flashsac_dexsuite_lift_smoke.py` |
+| Train (FlashSAC) | `scripts/launch/flashsac.sh train --task Isaac-Dexsuite-Kuka-Allegro-Lift-Direct-v0` |
+| Headless smoke test | `python scripts/smoke/flashsac_dexsuite_lift_smoke.py` |
 
 Notes:
 - Action bounds 0.1 (the RelativeJointPositionAction scale) are registered in the
@@ -471,7 +471,7 @@ lives at `~/Documents/projects/FlashSAC` with these local modifications:
   resolved via `FLASH_RL_EXTRA_TASK_MODULES=LEAP_Isaaclab.tasks`; action bounds added for
   `Isaac-Repose-Cube-LEAP-Direct-v0`; `FLASH_RL_PRESET=newton_mjwarp` switches the
   wrapper to hydra preset resolution + `isaaclab_tasks.utils.sim_launcher.launch_simulation`,
-  which starts Kit ONLY for PhysX/camera tasks — this is what `scripts/flashsac.sh ... --backend newton`
+  which starts Kit ONLY for PhysX/camera tasks — this is what `scripts/launch/flashsac.sh ... --backend newton`
   uses to train WITHOUT Isaac Sim; when `headless=False` the AppLauncher is given
   `visualizer=["kit"]` (Isaac Lab 3.0 forces headless unless a Kit visualizer is requested);
   `install_hold_to_confirm` is generalized to also patch
@@ -503,13 +503,13 @@ lives at `~/Documents/projects/FlashSAC` with these local modifications:
 
 | Purpose | Command |
 |---|---|
-| Train (menu TUI; also `train|play` positional + `--task <full-gym-id> --backend physx|newton`) | `scripts/flashsac.sh` |
-| Train (laptop-GPU profile) | `NUM_TRAIN_ENVS=512 BUFFER_LEN=1000000 scripts/flashsac.sh train --task Isaac-Repose-Cube-LEAP-Direct-v0` |
-| Play with Isaac Sim GUI | `scripts/flashsac.sh play --task Isaac-Repose-Cube-LEAP-Direct-v0` (checkpoint picker; forwards `--hold_time`, `--action_smooth`) |
+| Train (menu TUI; also `train|play` positional + `--task <full-gym-id> --backend physx|newton`) | `scripts/launch/flashsac.sh` |
+| Train (laptop-GPU profile) | `NUM_TRAIN_ENVS=512 BUFFER_LEN=1000000 scripts/launch/flashsac.sh train --task Isaac-Repose-Cube-LEAP-Direct-v0` |
+| Play with Isaac Sim GUI | `scripts/launch/flashsac.sh play --task Isaac-Repose-Cube-LEAP-Direct-v0` (checkpoint picker; forwards `--hold_time`, `--action_smooth`) |
 | Monitor | `tensorboard --logdir ~/Documents/projects/FlashSAC/runs` |
 | Checkpoints | `~/Documents/projects/FlashSAC/models/<group>/<exp>/Isaac-Repose-Cube-LEAP-Direct-v0/` |
 
-`scripts/flashsac.sh` (2026-09-11) REPLACES the four former wrappers
+`scripts/launch/flashsac.sh` (2026-09-11) REPLACES the four former wrappers
 (`flashsac_{train,play}_{leap_direct,dexsuite_lift}.sh`): one menu TUI covering
 task (FULL gym ids; the four known ones are listed, a free-text "other" entry
 accepts any id with generic defaults — group `flashsac`, exp `run1`, play env =
@@ -527,7 +527,7 @@ checkpoint from a listed run menu (GROUP + optional EXP filter, newest step*/
 default) and auto-switches lift to the `-Direct-Play-v0` env (ADR max difficulty).
 
 Kit-less (Newton) training status, measured 2026-09-11
-(`scripts/leap_repose_direct_newton_probe.py --task <id> --curl`, 8-16 envs):
+(`scripts/probes/leap_repose_direct_newton_probe.py --task <id> --curl`, 8-16 envs):
 - cube / objects / objects-v1 BUILD and STEP on `newton_mjwarp` — hand anchored
   by a pxr `UsdPhysics.FixedJoint` root weld (`_fix_root_link_kitless`), object
   held (z stable under curl), rewards finite, obs 136-d, and v1's manifest
@@ -543,7 +543,7 @@ Kit-less (Newton) training status, measured 2026-09-11
   12 tactile obs channels + reward terms 8/9/10 are dead under kit-less. The
   TUI prints this warning at newton-backend launch.
 - Objects-task fixes that made kit-less possible (also required for the
-  PhysX path, verified by `scripts/leap_repose_objects_direct_smoke.py`):
+  PhysX path, verified by `scripts/smoke/leap_repose_objects_direct_smoke.py`):
   objects spawn NESTED at `/World/envs/env_*/obj/<name>` — the newton
   `RigidObjectCollection` builds ONE fnmatch pattern over all members whose `*`
   CROSSES `/`, so flat sibling prims made the pattern `/World/envs/env_*/*`

@@ -11,7 +11,7 @@ Checks, headless, with 4 envs:
   4. Goal-reset bookkeeping and the consecutive-successes metric update.
 
 Run:
-  ~/env_isaaclab/bin/python scripts/leap_repose_direct_smoke.py
+  ~/env_isaaclab/bin/python scripts/smoke/leap_repose_direct_smoke.py
 """
 
 import argparse

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Launch a kit-less training run on a provisioned AutoDL (seetacloud) box.
 #
-# Companion to scripts/setup_kitless_remote.sh (run that first on a fresh
+# Companion to scripts/launch/setup_kitless_remote.sh (run that first on a fresh
 # instance). This script: rsyncs the repo (incremental -- carries local
 # entrypoint changes over), makes sure the RL library is installed in the
 # remote venv, then starts the run DETACHED (nohup) so a dropped SSH session
 # does not kill it, and prints how to follow it.
 #
 # Usage:
-#   KITLESS_SSH_PASS='...' scripts/train_kitless_remote.sh -H <host> -p <port> \
+#   KITLESS_SSH_PASS='...' scripts/launch/train_kitless_remote.sh -H <host> -p <port> \
 #       [--task=Isaac-Humanoid-Direct-v0] [--entry=rl_games|rsl_rl] \
 #       [--presets=newton_mjwarp|none] [--num-envs=N] [--max-iters=N] [--seed=N] \
 #       [--checkpoint=/remote/path.pt] [--skip-sync]
@@ -75,7 +75,7 @@ VENV="/root/isaaclab-kitless"
 RREPO="/root/LEAP_Hand_Isaac_Lab"
 
 # ---- 0. sanity --------------------------------------------------------------------------
-rrun "test -x $VENV/bin/python" || die "no $VENV on the remote -- run scripts/setup_kitless_remote.sh first"
+rrun "test -x $VENV/bin/python" || die "no $VENV on the remote -- run scripts/launch/setup_kitless_remote.sh first"
 rrun "nvidia-smi --query-gpu=memory.used --format=csv,noheader" | sed 's/^/GPU memory in use: /'
 
 # ---- 1. sync ----------------------------------------------------------------------------

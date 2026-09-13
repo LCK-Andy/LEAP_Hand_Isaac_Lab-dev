@@ -15,7 +15,7 @@ Checks, headless with 20 envs:
      rewards finite and objects near the palm.
 
 Run:
-  ~/env_isaaclab/bin/python scripts/leap_repose_objects_direct_smoke.py
+  ~/env_isaaclab/bin/python scripts/smoke/leap_repose_objects_direct_smoke.py
 """
 
 import argparse

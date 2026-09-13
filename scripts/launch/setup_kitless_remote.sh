@@ -56,9 +56,9 @@
 # safe to re-launch after a network drop or an instance reboot.
 #
 # Usage:
-#   KITLESS_SSH_PASS='...' scripts/setup_kitless_remote.sh -H connect.cqa1.seetacloud.com -p 30952
-#   scripts/setup_kitless_remote.sh -H mybox.autodl.com -p 12345 --skip-smoke --skip-repo
-#   scripts/setup_kitless_remote.sh -H mybox.autodl.com -p 12345 --full
+#   KITLESS_SSH_PASS='...' scripts/launch/setup_kitless_remote.sh -H connect.cqa1.seetacloud.com -p 30952
+#   scripts/launch/setup_kitless_remote.sh -H mybox.autodl.com -p 12345 --skip-smoke --skip-repo
+#   scripts/launch/setup_kitless_remote.sh -H mybox.autodl.com -p 12345 --full
 #
 # Requires locally: sshpass (when using a password), pip with internet access to
 # pypi.nvidia.com (kit-less) and download.pytorch.org (--full); KITLESS_LOCAL_PIP
@@ -142,16 +142,32 @@ if [ -n "$PASS" ]; then
   command -v sshpass >/dev/null || { echo "error: sshpass is required for password auth (apt install sshpass)"; exit 1; }
   SSH_BASE=(sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ConnectTimeout=20)
   RSYNC_BASE=(sshpass -p "$PASS" rsync -az --info=stats1 -e "ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -p $PORT")
+  RSYNC_WHEEL=(sshpass -p "$PASS" rsync -a --whole-file --partial --info=progress2 -e "ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -p $PORT")
 else
   echo "note: KITLESS_SSH_PASS/-P not set, using key auth"
   SSH_BASE=(ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ConnectTimeout=20)
   RSYNC_BASE=(rsync -az --info=stats1 -e "ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -p $PORT")
+  RSYNC_WHEEL=(rsync -a --whole-file --partial --info=progress2 -e "ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -p $PORT")
 fi
 DEST="root@$HOST"
 rrun() { "${SSH_BASE[@]}" -p "$PORT" "$DEST" "export LC_ALL=C; $*"; }
 
 stage() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 die() { printf '\n\033[1;31mFATAL: %s\033[0m\n' "$*" >&2; exit 1; }
+
+# transient-failure wrapper for remote pushes: AutoDL instances occasionally
+# drop SSH mid-transfer (connection reset / port refused for ~a minute).
+# Retry a few times with a pause; combined with rsync --partial this turns
+# "relay died at 40%" into an automatic resume instead of a FATAL.
+push_with_retry() { # push_with_retry <cmd...>
+  local attempt
+  for attempt in 1 2 3; do
+    if "$@"; then return 0; fi
+    echo "push attempt $attempt failed; the remote may have dropped SSH -- retrying in 60s (attempt 3/3 is final)"
+    sleep 60
+  done
+  return 1
+}
 
 # ---- stage scripts that run on the remote (idempotent) -------------------------------
 TMPDIR_LOCAL=$(mktemp -d)
@@ -281,11 +297,49 @@ fi
 
 # 3. Isaac Sim full stack (~20 GB). Single wheels reach 5.9 GB -- TMPDIR must be
 #    on this data disk (see prologue) or the system disk fills mid-download.
+#
+# CONCURRENCY: the ~20 GB of isaacsim wheels are downloaded to a wheel dir in
+# the BACKGROUND as soon as this stage starts -- overlapped with the laptop's
+# torch relay (which the setup driver runs before uploading this stage), so
+# the two network transfers never serialize. `pip install` later resolves from
+# that dir (falls back to the indexes for anything missing).
 if "$PIP" show isaacsim >/dev/null 2>&1; then
   log "isaacsim already installed"
 else
-  log "installing isaacsim[all,extscache]==@ISAACSIM@ (~20 GB; 20-40 min at 12-18 MB/s)"
-  "$PIP" install --timeout 25 --retries 8 "isaacsim[all,extscache]==@ISAACSIM@" \
+  DLDIR=/root/wheels/isaacsim-prefetch
+  mkdir -p "$DLDIR"
+  if [ -f "$DLDIR/.download_done" ]; then
+    log "isaacsim prefetch already complete"
+  elif ! pgrep -f "[i]saacsim.*prefetch" >/dev/null; then
+    log "prefetching isaacsim[all,extscache]==@ISAACSIM@ wheels in background (~20 GB; overlapped with the torch relay)"
+    # also pre-build the sdist-only deps (imgui/moviepy/antlr4-python3-runtime)
+    # NOW, in parallel with the big download, instead of serially during
+    # --install at the very end (~10-15 min of pure CMake on the critical path)
+    nohup bash -c "'$PIP' wheel --no-deps -w '$DLDIR' imgui 'moviepy>=2.0' 'antlr4-python3-runtime==4.13.2'; '$PIP' download --timeout 25 --retries 8 -d '$DLDIR' 'isaacsim[all,extscache]==@ISAACSIM@' && touch '$DLDIR/.download_done'" \
+      >"$DLDIR/download.log" 2>&1 &
+  fi
+fi
+
+# 3b. wait for the prefetch to finish (it overlapped with the torch relay and
+#     everything above), then install from the local wheel dir -- no re-download.
+if ! "$PIP" show isaacsim >/dev/null 2>&1; then
+  DLDIR=/root/wheels/isaacsim-prefetch
+  log "waiting for the isaacsim wheel prefetch to finish (already downloading since stage start)"
+  while [ ! -f "$DLDIR/.download_done" ]; do
+    if ! pgrep -f "[i]saacsim.*prefetch" >/dev/null && [ ! -f "$DLDIR/.download_done" ]; then
+      # prefetch process died without the marker: fall back to a foreground
+      # download (still resumable-ish via pip cache), then install
+      log "prefetch process died -- running the download in the foreground"
+      "$PIP" download --timeout 25 --retries 8 -d "$DLDIR" "isaacsim[all,extscache]==@ISAACSIM@" \
+        || fail "isaacsim wheel download failed"
+      touch "$DLDIR/.download_done"
+      break
+    fi
+    sleep 20
+  done
+  log "installing isaacsim from prefetched wheels (~2-5 min, no network)"
+  "$PIP" install --no-index --find-links "$DLDIR" --find-links /root/wheels \
+    "isaacsim[all,extscache]==@ISAACSIM@" \
     || fail "isaacsim install failed (was TMPDIR on the data disk? Errno 28 means it was not)"
 fi
 
@@ -320,15 +374,35 @@ log "running isaaclab.sh --install (idempotent; fresh box ~15-20 min)"
 # retry once after a cache purge: a single corrupted/poisoned http-cache entry
 # (e.g. written while a proxy mangled a response) makes every later resolve of
 # that package fail with "from versions: none" -- observed 2026-09-12
+# Pre-install the github-hosted git dependencies from a turbo-proxy clone:
+# pip's own `git+https://github.com/...` clones die mid-pack on AutoDL boxes
+# ("fetch-pack: unexpected disconnect", westb 2026-09-12) and hang --install.
+for gh_pkg in robomimic; do
+  if ! "$PIP" show "${gh_pkg}" >/dev/null 2>&1; then
+    log "pre-installing $gh_pkg from a turbo clone (github direct is flaky)"
+    rm -rf "/tmp/$gh_pkg"
+    ( source /etc/network_turbo >/dev/null 2>&1 || true
+      git clone --depth 1 "https://github.com/ARISE-Initiative/$gh_pkg.git" "/tmp/$gh_pkg" ) \
+      && "$PIP" install "/tmp/$gh_pkg" \
+      || fail "$gh_pkg pre-install failed (turbo proxy reachable?)"
+  fi
+done
+unset PIP_FIND_LINKS PIP_ONLY_BINARY
+# PIP_FIND_LINKS hands --install the pre-built imgui/moviepy/antlr4 wheels
+# (and the isaacsim set), so it installs binaries instead of rebuilding sdists;
+# PIP_ONLY_BINARY blocks any surprise source build (fails fast instead).
+export PIP_FIND_LINKS=/root/wheels/isaacsim-prefetch /root/wheels
+export PIP_ONLY_BINARY=:all:
 ( cd "$ISAACLAB" && source "$VENV/bin/activate" && ./isaaclab.sh --install ) \
   || { log "install failed -- purging pip cache and retrying once"; "$PIP" cache purge >/dev/null 2>&1 || true
        ( cd "$ISAACLAB" && source "$VENV/bin/activate" && ./isaaclab.sh --install ) ; } \
   || fail "isaaclab.sh --install failed (github proxy reachable? pip indexes reachable?)"
 
-# 6. headless-container fixups:
-#    - EULA: non-interactive shells EOF on the prompt and die. The marker file
-#      must live in isaacsim/kit/ -- a marker in the isaacsim package root is
-#      silently ignored (verified the hard way).
+# 5b. headless-container fixups -- BEFORE --install so a driver death after
+#     this point can never leave a stack that blocks on the EULA prompt (seen
+#     2026-09-12: marker written post-install; SSH dropped; headless runs EOF'd
+#     on the prompt). The marker file must live in isaacsim/kit/ -- a marker in
+#     the isaacsim package root is silently ignored (verified the hard way).
 SP_DIR="$("$PIP" show isaacsim 2>/dev/null | sed -n 's/^Location: //p')/isaacsim"
 if [ -d "$SP_DIR/kit" ]; then
   echo yes > "$SP_DIR/kit/EULA_ACCEPTED" && log "EULA accepted (marker in isaacsim/kit/)"
@@ -410,6 +484,16 @@ if [ "$FULL" = 1 ]; then
   if [ "$have_torch" = yes ]; then
     echo "remote already has torch $TORCH_CU128_VERSION"
   else
+    # probe the image's preinstalled torch first: an exact match with the pin
+    # skips the ~917MB relay entirely; anything else (e.g. 2.12.1+cu130 seen on
+    # 2026-09-12 images) is NOT verified against isaacsim 6.0.1 + isaaclab 3.0
+    # and the venv is isolated anyway, so we relay the pinned wheel regardless.
+    pre_torch=$(rrun '/root/miniconda3/bin/python -c "import torch; print(torch.__version__)" 2>/dev/null' || true)
+    if [ "$pre_torch" = "$TORCH_CU128_VERSION" ]; then
+      echo "image already ships torch $TORCH_CU128_VERSION (base env) -- but the venv is isolated, relay still needed unless KITLESS_TORCH=system"
+    elif [ -n "$pre_torch" ]; then
+      echo "note: image base env has torch $pre_torch (pin is $TORCH_CU128_VERSION; unverified with isaacsim 6.0.1, relaying pinned wheel)"
+    fi
     if ! ls "$WHEELS_DIR"/torch-2.10.0+cu128-*.whl >/dev/null 2>&1; then
       PIP_BIN="${KITLESS_LOCAL_PIP:-}"
       if [ -z "$PIP_BIN" ]; then
@@ -426,7 +510,22 @@ if [ "$FULL" = 1 ]; then
         || die "local torch wheel download failed -- is download.pytorch.org reachable from this machine?"
       ls "$WHEELS_DIR"/torch-2.10.0+cu128-*.whl >/dev/null || die "wheel download produced no torch+cu128 wheel"
     fi
-    "${RSYNC_BASE[@]}" "$WHEELS_DIR"/torch-*+cu128-*.whl "$DEST:/root/wheels/" || die "torch wheel rsync failed"
+    # the ~917MB torch relay is the longest step and is uplink-bound. Print the
+    # size up front and use whole-file mode (the wheel is already deflate-
+    # compressed, so -z only burns a core and caps throughput at ~1-2 MB/s),
+    # --partial so an interrupted push resumes instead of restarting, and
+    # progress2 so the transfer visibly advances instead of looking hung.
+    torch_whl=$(ls "$WHEELS_DIR"/torch-2.10.0+cu128-*.whl 2>/dev/null | head -1)
+    torch_sz=$(du -h "$torch_whl" 2>/dev/null | cut -f1)
+    echo "relaying ${torch_sz:-~917M} of torch+cu128 wheels to the remote (uplink-bound; interruptible/resumable)"
+    # NB: relay BOTH wheels explicitly. The old glob `torch-*+cu128-*.whl`
+    # silently skipped torchvision (its filename starts with "torchvision"),
+    # and the remote stage then died on "Invalid wheel filename" for it.
+    push_with_retry "${RSYNC_WHEEL[@]}" \
+      "$WHEELS_DIR"/torch-2.10.0+cu128-*.whl \
+      "$WHEELS_DIR"/torchvision-0.25.0+cu128-*.whl \
+      "$DEST:/root/wheels/" \
+      || die "torch wheel rsync failed after retries (is the instance still running? --partial keeps what arrived; rerun to resume)"
   fi
 else
   # kit-less NVIDIA beta stack (~150 MB); deps resolve on the remote from tuna

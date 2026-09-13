@@ -28,10 +28,10 @@
 #            and reward terms 8/9/10 are dead. lift has no Newton support at all.
 #
 # Usage:
-#   scripts/flashsac.sh                                          # interactive menus
-#   scripts/flashsac.sh train --task Isaac-Repose-Objects-LEAP-Direct-v0 --backend newton
-#   scripts/flashsac.sh play --task Isaac-Dexsuite-Kuka-Allegro-Lift-Direct-v0 -n 4
-#   scripts/flashsac.sh train --task <any-gym-task-id> --dry-run   # print the exec line only
+#   scripts/launch/flashsac.sh                                          # interactive menus
+#   scripts/launch/flashsac.sh train --task Isaac-Repose-Objects-LEAP-Direct-v0 --backend newton
+#   scripts/launch/flashsac.sh play --task Isaac-Dexsuite-Kuka-Allegro-Lift-Direct-v0 -n 4
+#   scripts/launch/flashsac.sh train --task <any-gym-task-id> --dry-run   # print the exec line only
 #
 # Options:
 #   train | play           the MODE, as a (first) positional argument

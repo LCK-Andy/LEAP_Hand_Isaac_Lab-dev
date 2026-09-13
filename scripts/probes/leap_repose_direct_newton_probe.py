@@ -17,7 +17,7 @@ plus obs/reward shapes. Kit-less only: resolves the config with
 ``presets=newton_mjwarp`` and never launches Kit.
 
 Usage:
-    python scripts/leap_repose_direct_newton_probe.py [--task ID] [--num_envs 16] [--steps 150] [--curl]
+    python scripts/probes/leap_repose_direct_newton_probe.py [--task ID] [--num_envs 16] [--steps 150] [--curl]
 """
 
 import argparse

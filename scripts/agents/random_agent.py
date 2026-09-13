@@ -13,10 +13,10 @@ checks (finite obs/rewards, per-episode object resampling, parked-row
 invariant, activation histogram) for `--num_steps` steps and prints a summary.
 
 Examples:
-  ~/env_isaaclab/bin/python scripts/random_agent.py                       # GUI, run forever
-  ~/env_isaaclab/bin/python scripts/random_agent.py --headless            # terminal, run forever
-  ~/env_isaaclab/bin/python scripts/random_agent.py --headless --verify   # verification run
-  ~/env_isaaclab/bin/python scripts/random_agent.py --headless --verify --num_steps 1000
+  ~/env_isaaclab/bin/python scripts/agents/random_agent.py                       # GUI, run forever
+  ~/env_isaaclab/bin/python scripts/agents/random_agent.py --headless            # terminal, run forever
+  ~/env_isaaclab/bin/python scripts/agents/random_agent.py --headless --verify   # verification run
+  ~/env_isaaclab/bin/python scripts/agents/random_agent.py --headless --verify --num_steps 1000
 """
 
 import argparse

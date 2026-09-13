@@ -5,7 +5,7 @@ Registered ids:
   - ``Isaac-Dexsuite-Kuka-Allegro-Lift-Direct-Play-v0`` (eval, ADR at max difficulty)
 
 See ``dexsuite_lift_direct_env.py`` for the port map and the v1 parity gaps.
-Train with FlashSAC via ``scripts/flashsac.sh`` (``train --task Isaac-Dexsuite-Kuka-Allegro-Lift-Direct-v0``).
+Train with FlashSAC via ``scripts/launch/flashsac.sh`` (``train --task Isaac-Dexsuite-Kuka-Allegro-Lift-Direct-v0``).
 """
 
 import gymnasium as gym
