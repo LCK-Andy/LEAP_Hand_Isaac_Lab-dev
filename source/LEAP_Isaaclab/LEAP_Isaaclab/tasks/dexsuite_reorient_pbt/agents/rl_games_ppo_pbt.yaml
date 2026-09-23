@@ -1,0 +1,118 @@
+# DexPBT-inspired PPO on the official Dexsuite MDP, with bounded Gaussian
+# exploration, tolerance annealing, and reward-independent episode scoring.
+# This configuration is not an exact reproduction of the DexPBT paper.
+params:
+  seed: 42
+
+  env:
+    clip_observations: 100.0
+    clip_actions: 1.0
+    # dexsuite splits state across three obs groups; concatenate them for the
+    # MLP actor exactly like the task's official rsl_rl cfg does
+    obs_groups: ["policy", "proprio", "perception"]
+    concate_obs_groups: true
+
+  algo:
+    name: a2c_continuous
+
+  model:
+    name: continuous_a2c_logstd
+
+  network:
+    name: actor_critic
+    separate: True
+
+    space:
+      continuous:
+        mu_activation: None
+        sigma_activation: None
+        mu_init:
+          name: default
+        sigma_init:
+          name: const_initializer
+          val: -1.2039728043259361  # log(0.3), normalized action standard deviation
+        fixed_sigma: True
+
+    mlp:
+      units: [512, 256, 128]
+      activation: elu
+      d2rl: False
+
+      initializer:
+        name: default
+      regularizer:
+        name: None
+
+  load_checkpoint: False
+  load_path: ''
+  config:
+    name: dexpbt_reorient
+    env_name: rlgpu
+    device: cuda:0
+    device_name: cuda:0
+    multi_gpu: False
+    ppo: True
+    mixed_precision: False
+    normalize_input: True
+    normalize_value: True
+    value_bootstrap: True
+    num_actors: 1024  # overwritten by the train script from --num_envs
+    reward_shaper:
+      scale_value: 1.0
+    normalize_advantage: True
+    gamma: 0.99
+    tau: 0.95
+    learning_rate: 0.001
+    lr_schedule: adaptive
+    schedule_type: standard
+    kl_threshold: 0.01
+    score_to_win: 100000
+    max_epochs: 50000
+    save_best_after: 100
+    save_frequency: 200
+    print_stats: True
+    grad_norm: 1.0
+    entropy_coef: 0.0
+    exploration:
+      initial_std: 0.3
+      min_std: 0.05
+      max_std: 1.0
+    truncate_grads: True
+    e_clip: 0.2
+    horizon_length: 32
+    minibatch_size: 1024
+    mini_epochs: 5
+    critic_coef: 4
+    clip_value: True
+    seq_length: 4
+    bounds_loss_coef: 0.0005
+
+pbt:
+  enabled: true
+  policy_idx: 0  # overridden per member (pbt.policy_idx=<i> on the CLI)
+  num_policies: 4
+  directory: /root/dexpbt_reorient
+  workspace: pbt_workspace
+  objective: dexpbt
+  interval_steps: 1000000
+  min_completed_episodes: 128
+  max_score_age_seconds: 1800.0
+  max_frame_lag: 2000000
+  warmup_steps: 5000000
+  adaptation_steps: 3000000
+  initial_diversity: true
+  progress_weight: 0.05
+  position_error_scale: 1.0
+  threshold_std: 0.2
+  threshold_abs: 0.01
+  mutation_rate: 0.25
+  change_range: [1.1, 1.5]
+  # Entropy stays zero during acquisition; only these bounded settings evolve.
+  mutation:
+    agent.params.config.learning_rate: mutate_float
+    agent.params.config.grad_norm: mutate_float
+    agent.params.config.kl_threshold: mutate_float
+  mutation_bounds:
+    agent.params.config.learning_rate: [0.00001, 0.003]
+    agent.params.config.grad_norm: [0.25, 2.0]
+    agent.params.config.kl_threshold: [0.003, 0.03]
