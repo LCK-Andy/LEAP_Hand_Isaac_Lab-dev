@@ -142,11 +142,16 @@ with launch_simulation(env_cfg, {"headless": True, "device": "cuda:0", "enable_c
             if step == 0 and base.fingertip_contact_sensors:
                 name = next(iter(base.fingertip_contact_sensors))
                 s = base.fingertip_contact_sensors[name]
+                # backend-specific internals: newton names the filter count
+                # _num_filter_objects, ovphysx _num_filter_shapes; the raw view
+                # only exists on newton
+                n_filter = getattr(s, "_num_filter_objects", getattr(s, "_num_filter_shapes", "?"))
+                raw_view = getattr(s, "_newton_total_force_view", None)
                 print(
                     f"[probe] sensor '{name}': num_sensors={s._num_sensors} "
-                    f"num_filter_objects={s._num_filter_objects} "
+                    f"num_filter={n_filter} "
                     f"net_forces_w shape={tuple(s.data.net_forces_w.shape)} "
-                    f"raw view shape={tuple(s._newton_total_force_view.shape)}"
+                    f"raw view shape={tuple(raw_view.shape) if raw_view is not None else 'n/a (non-newton)'}"
                 )
             if step % 25 == 0:
                 try:
