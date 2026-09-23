@@ -262,6 +262,76 @@ deliberately NOT observed, per the estimation premise). Mechanics:
 | Train (FlashSAC) | `scripts/launch/flashsac.sh train --task Isaac-Repose-Objects-LEAP-Direct-v1` |
 | Headless smoke test | `python scripts/smoke/leap_repose_objects_direct_v1_smoke.py` |
 
+Contact-point variant (`Isaac-Contact-Cube-LEAP-Direct-v0`,
+`...-Direct-Play-v0` for eval) — the repose direct MDP with the orientation
+goal REPLACED by 4 contact points sampled uniformly on the cube surface (all
+6 faces incl. palm-facing regions — reachable only by REGRASPING; cube-local
+frame; min pairwise separation 2.5 cm, rejection-resampled; DexCube at scale
+1.2 is a 6 cm cube, `cube_half_extent = 0.03` pinned from the smoke-measured
+bbox). A point is TOUCHED when its one-to-one MATCHED pulp (exact assignment,
+argmin over all 4! = 24 tip-permutations) is within `touch_distance` (1.5 cm)
+AND reports > `touch_force` (0.1 N) of cube-filtered contact force — the
+repose task's per-pulp ContactSensors, so hovering never counts. Success uses
+a NATIVE hold timer (per-env duration from `hold_time_range`, v2 default
+(0.1, 0.5) s = 3-15 steps): all 4 touched continuously → +250
+(`reach_goal_bonus`) and points resample mid-episode (the base task's
+goal-resample pattern). Reward v3 (2026-09-21): −0.05 × Σ matched distances +
+0.5/touched point + **+0.1 alive bonus/step within 0.10 m of the anchor**
+(`alive_bonus_scale`/`alive_distance`) + −0.25 × ‖cube − anchor‖ drift signal
++ the base action/joint-energy/object-away penalties + −50 `fall_penalty` on
+the out-of-reach termination. DESIGN RULE (learned the hard way): keep every
+per-step COST stream under the drop-exploit break-even
+`fall_penalty / max_episode_length ≈ 0.083` and make holding EARN — both
+GRU-PPO (peak 77 → 14) and FlashSAC (peak 294 → 15, return IMPROVING as it
+collapsed) found the drop-early optimum of v2's −1.0/−2.0 streams and v1's
+free fall. v3 result (FlashSAC 20M local): episode length stable at 284-289
+for the whole run, returns positive (+17), exploit gone; successes still 0
+(the 4-point hold is the open frontier). `reset_rot_scale` (default 0.0)
+scales the reset cube rotation: 0 = axis-aligned spawn; raise toward 1.0 as
+curriculum. rot, goal-dist, fingertip-to-center, palm, and press terms
+dropped. Obs = the 136-d repose obs + the 4×4 tip→point relative-vector
+matrix in env frame (48 d) = 184 d; point order fixed per goal (matching is
+reward-side). The reward fn is deliberately named `compute_contact_rewards` —
+the FlashSAC hold-hook patches `compute_leap_rewards` by name and must stay
+inactive (hold is native; RSL-RL and FlashSAC would get identical semantics).
+Debug: 4 colored sphere markers glued to the points, poses recomputed every
+step (`/Visuals/contact_points`; no-op headless). Backends: **physx** =
+reference; **newton** allowed ONLY in geometry-only mode (`touch_force <= 0`
+drops the force gate — pulp sensors read zero under newton, so the gate must
+drop out entirely; `>` against all-zero forces would never fire); **ovphysx**
+experimental — sensors re-plumbed to `isaaclab_ovphysx.sensors` and forces DO
+report live there (probe: 87% of readings > 0.1 N, max 48 N), but the
+isaaclab-3.0.0b2 x ovphysx-0.4.13 combo has a frozen/garbage articulation
+pose readback (root/body positions constant ~1e13 while physics-side contacts
+are real) — NOT trainable until that is fixed. ovphysx wheel notes: only
+0.4.13 has the `add_usd` API the beta's manager calls (0.5.11/0.6.3 dropped
+it); the manager also needs a 2-line `device`-kwarg patch (see the seetacloud
+memory). rsl_rl only; FlashSAC wiring (ACTION_BOUNDS + TUI id) deliberately
+deferred. SCALE CEILING on Isaac Sim 6.0.1/PhysX (measured 2026-09-20): the
+GPU patch buffer caps at 163840 and this isaaclab generation has NO way to
+raise it (PhysxCfg gpu_* fields unread anywhere in the tree; physxScene USD
+attrs ignored whether authored in _setup_scene or by pre-creating
+/physicsScene before SimulationContext creation) — peak demand is ~15.4
+patches/env, so >~10.6k envs drops contact patches and corrupts the
+force-gated touch test; 10240 envs is the clean default for big runs. GPU
+utilization stays ~0% at any env count (CPU-serialization-bound pipeline,
+iteration time nearly flat in env count — env doubling raises throughput
+until the patch cap); parallel independent runs are the working lever for
+aggregate output. Large-scale history: contact-cube-r1 (2026-09-20, seetacloud
+4090, newton + geometric mode, 8192 envs — superseded same day) and
+**contact-physx-r6/r6b** (2026-09-20, same box, FULL force-gated task on
+PhysX: `/root/autodl-tmp/env_isaaclab` venv ships isaacsim 6.0.1 + an
+isaaclab 6.1.18 editable and runs this repo's 3.0.0b2-targeted code
+unchanged — smoke passed, pulp forces multi-N; 2 parallel runs, 10240 envs,
+seeds 42/43, tmux `contact-physx`/`contact-physx-b`, logs
+`/root/contact-cube-physx-r6{,b}.log`).
+
+| Purpose | Command |
+|---|---|
+| Train (RSL-RL, MLP) | `python scripts/rsl_rl/train.py --task Isaac-Contact-Cube-LEAP-Direct-v0 --headless` |
+| Train (RSL-RL, GRU) | `python scripts/rsl_rl/train.py --task Isaac-Contact-Cube-LEAP-Direct-GRU-v0 --headless` (same env/MDP + PPO hyperparams; GRU-256 recurrent actor-critic for temporal/force history — clean MLP-vs-GRU A/B; Play twin `-GRU-Play-v0`) |
+| Headless smoke test | `python scripts/smoke/leap_contact_direct_smoke.py` (also measures the cube bbox) |
+
 Notes:
 - `scripts/agents/random_agent.py` mirrors the official Isaac Lab random-agent API
   (`scripts/environments/random_agent.py`: --task/--num_envs/--disable_fabric +
@@ -378,6 +448,68 @@ Notes:
   `isaaclab_rl` 3.0.0b2 still serializes them and rsl-rl-lib 5.0.1's `MLPModel`
   rejects them (this also breaks the official Allegro tasks' stock RSL-RL cfgs in
   this env).
+
+## Additional task: DexPBT replication on DexSuite Reorient
+
+`Isaac-Dexsuite-Kuka-Allegro-Reorient-PBT-v0` (+ `-PBT-Play-v0`; task pkg
+`tasks/dexsuite_reorient_pbt/`): the OFFICIAL manager-based
+`Isaac-Dexsuite-Kuka-Allegro-Reorient-v0` MDP with a DexPBT-inspired
+population wrapper (NOT a faithful paper replication). Reworked 2026-09-24
+after the first population was diagnosed as four identically-configured PPO
+seeds (selection gate dead at the observed score scale, broken restart
+plumbing, unbounded learned exploration — checkpoint sigma implied >=68-71%
+of action components clipped; see
+docs/research/2026-09-24-dexpbt-training-strategy.md). Key pieces:
+- **PBT** (`pbt/`): one PROCESS per member
+  (`scripts/rl_games/train_dexpbt_member.py`, repo's proven AppLauncher flow),
+  shared workspace, publication every `interval_steps` env steps. Selection
+  uses COMPLETED-EPISODE stats (`objective: dexpbt`, success-first with a
+  fixed pose-progress tie-break — never the soft success reward), requires
+  >=128 completed episodes and fresh scores, and compares only
+  physically-matching conditions (actual gravity/noise parameter stamp; the
+  ADR scheduler's bookkeeping fraction is ignored below the native <0.1
+  NO_CHANGE hysteresis). Underperformers re-exec from a random leader with
+  lr/grad_norm/kl_threshold mutated ×U(1.1, 1.5) within explicit bounds
+  (entropy PINNED 0 — not mutated); 5M-step warm-up, 3M post-exploit
+  adaptation; bounded initial diversity (member 0 baseline). Restarts
+  preserve full argv identity via sys.executable, restore optimizer/adaptive
+  LR/normalizers + recipient frame accounting, and normalize torch.compile's
+  `_orig_mod.` prefixes; `pbt.enabled=false` keeps the restore path for
+  exploitation-disabled diagnostics.
+- **Exploration** (`pbt/exploration.py`): learned logstd bounded to
+  [.05, 1.0] (initial std 0.3, arm 0.15/.5 cap when the 23-joint action order
+  is verified) after restore, pre-inference, and every optimizer step;
+  logs actual sampled clipping/saturation fractions. Runner `--sigma` is
+  RAW LOGSTD, not std.
+- **Curriculum** (`environment.py`, `evaluation.py`): the 0.2 m start
+  tolerance is actually applied at spawn (the old code stored .2 but never
+  wrote it), annealed from COMPLETED-episode sticky success flags (the old
+  code read a log dict the rl-games wrapper pops), 1024-episode weighted
+  windows; curriculum+ADR state rides checkpoints via get/set_env_state
+  (strict num_envs match).
+- **Fixed evaluation** (`scripts/rl_games/evaluate_dexpbt.py`): held-out
+  report at pinned ADR fraction + 0.1 m/0.5 rad/0.01 N thresholds
+  (centralized constants), policy-only restore (no donor curriculum), JSON
+  report with checkpoint hash; `scripts/smoke/dexpbt_smoke.py` covers
+  metrics/curriculum/fixed-ADR in-sim.
+Launch via `scripts/launch/dexpbt_reorient.sh` (POP/ENVS/EPOCHS/INTERVAL/
+BASE/PYTHON/RESUME/DRY_RUN knobs; preflights ALL tmux sessions before
+launching any, refuses fresh-start into a populated workspace, NO automatic
+retry of crashed members — relaunch explicitly with RESUME=1). Tests:
+`tests/test_dexpbt_{pbt,exploration,curriculum}.py` (42 + 7 subtests,
+simulator-free). Scaled run (2026-09-24, westb 2×4080S 32 GB): 8 members ×
+1024 envs, seeds 42-49, ~35k steps/s aggregate, ~21 h for 2.62B steps —
+see docs/research/2026-09-24-dexpbt-scaled-westb-run.md. Gotchas: rl-games
+1.6.5 yaml needs algo.name/model.name/mlp.units/reward_shaper (the westb box
+ships 1.6.1 — prepend a `pip install --no-deps --target` 1.6.5 dir on
+PYTHONPATH); 3.0.0b2 wrapper wants obs_groups `{"obs": [...], "states":
+[...]}`; hydra drops the yaml's top-level pbt block and silently reverts
+early agent-cfg writes — the member script fishes `pbt.*`/`params.*` CLI
+tokens and applies params.* directly before `runner.load`; simulation_app
+`.close()` internally `os._exit`s, so entrypoints must catch/traceback and
+pass an explicit exit_code or failures read as success. Phase 2 (evolving
+reward coefficients, DexPBT's signature) deliberately deferred until fixed
+evaluation demonstrates acquisition.
 
 ## Additional task: Direct port of the official Dexsuite KUKA+Allegro Lift task
 
