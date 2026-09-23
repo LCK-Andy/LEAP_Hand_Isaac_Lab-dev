@@ -129,3 +129,59 @@ gym.register(
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_direct_cfg.yaml",
     },
 )
+
+##
+# Contact-point dexterity benchmark: the repose direct MDP with the orientation
+# goal replaced by 4 contact points sampled uniformly on the cube surface. A
+# pulp within the distance threshold AND pressing above the force gate counts
+# as touching a point (one-to-one matched); all 4 held continuously for a
+# per-env sampled duration scores and resamples the points. PhysX-only (the
+# force gate reads the per-pulp ContactSensors, which are dead kit-less).
+##
+
+gym.register(
+    id="Isaac-Contact-Cube-LEAP-Direct-v0",
+    entry_point=f"{__name__}.leap_contact_direct_env:LeapContactDirectEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.leap_contact_direct_env_cfg:LeapContactDirectEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_contact_direct_cfg:LeapContactDirectPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Isaac-Contact-Cube-LEAP-Direct-Play-v0",
+    entry_point=f"{__name__}.leap_contact_direct_env:LeapContactDirectEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.leap_contact_direct_env_cfg:LeapContactDirectEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_contact_direct_cfg:LeapContactDirectPPORunnerCfg",
+    },
+)
+
+##
+# GRU variant: the SAME env/MDP with a recurrent (GRU-256) actor-critic -- the
+# policy can integrate tactile/force history over time (the hold-to-confirm
+# success is a temporal predicate). PPO hyperparams identical to the MLP task
+# for a clean A/B.
+##
+
+gym.register(
+    id="Isaac-Contact-Cube-LEAP-Direct-GRU-v0",
+    entry_point=f"{__name__}.leap_contact_direct_env:LeapContactDirectEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.leap_contact_direct_env_cfg:LeapContactDirectEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_contact_direct_gru_cfg:LeapContactDirectGRUPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Isaac-Contact-Cube-LEAP-Direct-GRU-Play-v0",
+    entry_point=f"{__name__}.leap_contact_direct_env:LeapContactDirectEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.leap_contact_direct_env_cfg:LeapContactDirectEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_contact_direct_gru_cfg:LeapContactDirectGRUPPORunnerCfg",
+    },
+)
