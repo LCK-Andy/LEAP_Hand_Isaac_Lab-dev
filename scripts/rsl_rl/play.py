@@ -99,17 +99,25 @@ def main():
     # obtain the trained policy for inference
     policy = ppo_runner.get_inference_policy(device=env.unwrapped.device)
 
-    # export policy to onnx/jit
+    # export policy to onnx/jit (best-effort: rsl-rl >= 5 splits actor/critic
+    # on the algorithm object, and recurrent actors may not be JIT-exportable)
+    policy_module = getattr(ppo_runner.alg, "actor_critic", None)
+    if policy_module is None:
+        policy_module = ppo_runner.alg.actor
     export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
-    export_policy_as_jit(
-        ppo_runner.alg.actor_critic, ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.pt"
-    )
-    export_policy_as_onnx(
-        ppo_runner.alg.actor_critic, normalizer=ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.onnx"
-    )
+    try:
+        export_policy_as_jit(
+            policy_module, ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.pt"
+        )
+        export_policy_as_onnx(
+            policy_module, normalizer=ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.onnx"
+        )
+    except Exception as err:  # noqa: BLE001
+        print(f"[WARN] policy export skipped ({type(err).__name__}: {err})")
 
-    # reset environment
-    obs, _ = env.get_observations()
+    # reset environment (rsl-rl >= 5 returns obs alone; older returns (obs, extras))
+    result = env.get_observations()
+    obs = result[0] if isinstance(result, tuple) else result
     timestep = 0
     # simulate environment
     while simulation_app.is_running():
@@ -117,8 +125,9 @@ def main():
         with torch.inference_mode():
             # agent stepping
             actions = policy(obs)
-            # env stepping
-            obs, _, _, _ = env.step(actions)
+            # env stepping (tuple arity differs across rsl-rl versions; obs is first)
+            step_result = env.step(actions)
+            obs = step_result[0]
         if args_cli.video:
             timestep += 1
             # Exit the play loop after recording one video
