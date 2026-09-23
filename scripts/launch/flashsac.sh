@@ -354,9 +354,12 @@ else
             echo "  1-${#runs[@]} please" >&2
         done
         RUN_DIR="${runs[$((pick - 1))]}"
-        CHECKPOINT=$(ls -td "${RUN_DIR%/}"/step*/ 2>/dev/null | head -1 || true)
+        # newest step* checkpoint, falling back to the final/ dir the patched
+        # train.py always writes (a run shorter than the save interval -- or a
+        # downloaded-run mirror -- may have ONLY final/)
+        CHECKPOINT=$(ls -td "${RUN_DIR%/}"/step*/ "${RUN_DIR%/}"/final/ 2>/dev/null | head -1 || true)
         if [ ! -d "$CHECKPOINT" ]; then
-            echo "error: no step*/ checkpoint inside $RUN_DIR" >&2
+            echo "error: no step*/ or final/ checkpoint inside $RUN_DIR" >&2
             exit 1
         fi
     fi
