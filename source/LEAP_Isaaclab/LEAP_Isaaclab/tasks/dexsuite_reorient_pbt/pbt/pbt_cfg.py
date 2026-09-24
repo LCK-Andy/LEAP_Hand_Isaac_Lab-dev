@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 @dataclass
 class PbtCfg:
     enabled: bool = False
+    selection_enabled: bool = True
     policy_idx: int = 0
     num_policies: int = 4
     directory: str = ""
@@ -31,7 +32,7 @@ class PbtCfg:
     def __post_init__(self):
         if not 0 <= self.policy_idx < self.num_policies:
             raise ValueError("policy_idx must be inside the configured population")
-        if self.objective != "dexpbt":
+        if self.objective not in {"dexpbt", "allegro_goals"}:
             raise ValueError("PBT requires completed-episode dexpbt statistics, never soft reward")
         if self.interval_steps <= 0 or self.min_completed_episodes <= 0:
             raise ValueError("PBT interval and episode window must be positive")

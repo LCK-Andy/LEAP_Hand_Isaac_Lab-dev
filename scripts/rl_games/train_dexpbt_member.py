@@ -32,6 +32,12 @@ parser.add_argument("--seed", type=int, default=None)
 parser.add_argument("--distributed", action="store_true")
 parser.add_argument("--checkpoint", type=str, default=None)
 parser.add_argument(
+    "--legacy-best-checkpoint",
+    type=str,
+    default=None,
+    help="Explicit recipient conventional best from an old log directory (not donor/latest); seeds missing history only",
+)
+parser.add_argument(
     "--pbt-resume", type=str, default=None, help="Companion PBT metadata (auto-detected beside checkpoint)"
 )
 parser.add_argument("--sigma", type=float, default=None, help="RL-Games raw log-standard-deviation override (bounded)")
@@ -49,27 +55,28 @@ sys.argv = [sys.argv[0], *hydra_args]
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
+import gymnasium as gym
 import importlib
 import math
 import random
+import yaml
 from datetime import datetime
 
-import gymnasium as gym
-import yaml
 from omegaconf import OmegaConf
 from rl_games.common import env_configurations, vecenv
 from rl_games.common.algo_observer import IsaacAlgoObserver
 from rl_games.torch_runner import Runner
 
+import isaaclab_tasks  # noqa: F401
 from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.io import dump_yaml
 from isaaclab_rl.rl_games import RlGamesGpuEnv, RlGamesVecEnvWrapper
-
-import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils.hydra import hydra_task_config
+
 import LEAP_Isaaclab.tasks  # noqa: F401
 from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt import MultiObserver, PbtAlgoObserver
+from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.best_checkpoint import BestCheckpointObserver
 from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.exploration import ExplorationObserver
 from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.pbt import initialize_population
 from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.pbt_cfg import PbtCfg
@@ -149,6 +156,12 @@ def main(env_cfg, agent_cfg):
     obs_groups = agent_cfg["params"]["env"].get("obs_groups")
     concatenate = agent_cfg["params"]["env"].get("concate_obs_groups", True)
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+    if cfg.objective == "allegro_goals":
+        if args_cli.task != "Isaac-Repose-Cube-Allegro-Direct-v0":
+            raise ValueError("allegro_goals requires the unmodified official Allegro Direct task")
+        from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.allegro import attach_measurement
+
+        attach_measurement(env.unwrapped)
     exploration = None
     try:
         if isinstance(env.unwrapped, DirectMARLEnv):
@@ -166,7 +179,14 @@ def main(env_cfg, agent_cfg):
         exploration_options = dict(config.get("exploration", {}))
         exploration_options.setdefault("action_clip", clip_actions)
         exploration = ExplorationObserver(**exploration_options)
-        observers = [IsaacAlgoObserver(), exploration]
+        # Commit raw-reward bests before PBT's callback can exec. Instance restore
+        # wrappers compose as PBT -> best-history -> exploration -> base restore.
+        history_dir = log_root / cfg.workspace / f"{cfg.policy_idx:03d}" / "best"
+        observers = [
+            IsaacAlgoObserver(),
+            exploration,
+            BestCheckpointObserver(metadata, history_dir, args_cli.legacy_best_checkpoint),
+        ]
         # Restore semantics remain active for disabled-PBT diagnostic ablations.
         observers.append(PbtAlgoObserver(agent_cfg, args_cli))
         dump_yaml(str(log_root / log_dir / "params" / "env.yaml"), env_cfg)

@@ -3,16 +3,59 @@
 import json
 import math
 import os
+import random
 import shutil
 import time
-from pathlib import Path
-
+import warnings
 import yaml
+from pathlib import Path
 
 from ..evaluation import comparison_condition
 from .runtime import effective_params
 
 PROTOCOL = "training_conditions_fixed_definition_v1"
+
+
+def rng_state(rng):
+    """Encode the dedicated generator state as JSON/YAML-safe lists, never pickle."""
+    return json.loads(json.dumps(rng.getstate()))
+
+
+def recipient_rng(seed, policy_idx, metadata=None):
+    """Construct a member-owned stream, restoring only its companion metadata."""
+    rng = random.Random(f"pbt_rng_v1:{int(seed)}:{int(policy_idx)}")
+    if metadata is None:
+        return rng
+    if "pbt_rng_state" not in metadata:
+        frame = int(metadata.get("recipient_frame", metadata.get("frame", 0)))
+        epoch = int(metadata.get("recipient_epoch", metadata.get("epoch", 0)))
+        # A legacy restart's iteration/epoch may belong to the donor. Use recipient
+        # age when available; never depend on salted hash() or the global RNG.
+        if "recipient_frame" in metadata:
+            epoch = int(metadata.get("recipient_epoch", 0))
+        fallback = f"pbt_rng_legacy_v1:{int(seed)}:{int(policy_idx)}:{frame}:{epoch}"
+        warnings.warn(
+            f"Resuming legacy PBT metadata without pbt_rng_state; using deterministic {fallback}. "
+            "The original PBT random stream cannot be recovered.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        rng.seed(fallback)
+        return rng
+
+    def tuples(value):
+        return tuple(tuples(item) for item in value) if isinstance(value, (list, tuple)) else value
+
+    try:
+        state = tuples(metadata["pbt_rng_state"])
+        if not isinstance(state, tuple) or len(state) != 3:
+            raise ValueError("expected the three-part Random state")
+        if state[2] is not None and (type(state[2]) not in (int, float) or not math.isfinite(state[2])):
+            raise ValueError("invalid cached Gaussian value")
+        rng.setstate(state)
+    except (TypeError, ValueError, IndexError, OverflowError, RecursionError) as error:
+        raise ValueError(f"Invalid PBT RNG state in recipient metadata for member {policy_idx}: {error}") from error
+    return rng
 
 
 def flatten_dict(data, prefix="", separator="."):
@@ -118,6 +161,10 @@ def stage_restart(policy_dir, donor, recipient, params):
         "donor_frame": donor["frame"],
         "pbt_checkpoint": str(metadata.resolve()),
     }
+    # Never inherit a donor stream, even when the recipient is a legacy record.
+    record.pop("pbt_rng_state", None)
+    if "pbt_rng_state" in recipient:
+        record["pbt_rng_state"] = recipient["pbt_rng_state"]
     atomic_yaml(metadata, record)
     return str(checkpoint.resolve()), str(metadata.resolve())
 
