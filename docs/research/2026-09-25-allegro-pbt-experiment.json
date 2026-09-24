@@ -1,0 +1,49 @@
+{
+  "task": "Isaac-Repose-Cube-Allegro-Direct-v0",
+  "remote_root": "/root/allegro_pbt_20260925",
+  "python": "/root/autodl-tmp/env_isaaclab/bin/python",
+  "isolated_rl_games_1_6_5": "/root/dexpbt_scaled_20260924/python_deps",
+  "launch_command": "/root/autodl-tmp/env_isaaclab/bin/python /root/allegro_pbt_20260925/code/scripts/launch/allegro_pbt_experiment.py --root /root/allegro_pbt_20260925 --launch",
+  "exact_per_member_argv": "/root/allegro_pbt_20260925/experiment.json",
+  "arms": ["pbt", "control"],
+  "paired_seeds": [42, 43, 44, 45],
+  "gpu_assignment": {"0": "seeds42,43 both arms", "1": "seeds44,45 both arms"},
+  "num_envs_per_member": 1024,
+  "horizon": 16,
+  "epochs": 2048,
+  "steps_per_member": 33554432,
+  "total_steps": 268435456,
+  "policy": "Official MLP [1024,512,256,128], official PPO settings except minibatch8192, bounded learned std initial0.3 range[0.05,1.0], matched initial diversity in both arms",
+  "mdp": "Official rewards, observations124, absolute position actions16 plus native EMA, reset and goal sampling unchanged; instance-local measurement only",
+  "control_difference": "selection_enabled=false; publications, checkpointing, bounded sigma, initial diversity, seed and base PPO config matched",
+  "selection": {
+    "metric": "native goals per completed episode; count variance, not binomial variance or exponentially smoothed consecutive_successes",
+    "interval_steps": 524288,
+    "warmup_steps": 3145728,
+    "adaptation_steps": 1572864,
+    "minimum_episodes": 512,
+    "required_improvement": "greater than max(0.001,1.0*combined_standard_error)",
+    "freshness": "1800 seconds; each score end_frame within2097152 of its OWN checkpoint; no async peer lifetime frame rejection",
+    "mutation": "lr,grad_norm,kl_threshold multiply/divide U(1.1,1.5), explicit bounds; entropy pinned0",
+    "retention": "latest3 PBT publications/member plus recipient-owned restart files"
+  },
+  "validation": {
+    "local_suite": "47 passed and7 subtests",
+    "forced_native_goal": "8env exact target produced8 successes, adapter counted8 before native reset cleared them; finite stepping; /root/allegro_pbt_20260925/smoke.json",
+    "capacity": "1024env solo about10-11ksteps/s,3.1GB GPU; 4processes/GPU about12GB of32GB",
+    "training_probe": "40epochs completed; at524288steps,2156completed episodes,0.019481goals/episode",
+    "full_resume": "epoch33 frame524288 restored through35; std[0.284638,0.300874] preserved,0/16 coordinates projected; /root/allegro_pbt_20260925/resume.log",
+    "heldout_probe": "seed1042,64completed episodes,1goal,0.015625goals/episode,success_tolerance0.2; /root/allegro_pbt_20260925/eval_probe.json",
+    "forced_selection": "Synthetic isolated unit test selected donor0 for recipient1 and staged full restart; execv mocked, no production score manipulation; /root/allegro_pbt_20260925/pytest_allegro.log"
+  },
+  "tensorboard_links": ["/root/tf-logs/allegro-pbt-20260925", "/root/tf-logs/allegro-control-20260925"],
+  "startup_incident": "Control seed44 first process deadlocked before Kit startup and before any environment steps; only that newly created process was terminated and identically relaunched. First exit retained as control/member_2.startup_attempt1.exit, log appended.",
+  "limitations": [
+    "No effectiveness conclusion at launch; compare equal-budget final checkpoints with identical heldout seed and at least512episodes/member, report all members and population-best separately.",
+    "Four controls vs one four-member interacting PBT population is a pilot, not four independent PBT replications.",
+    "Count-based online selection has sampling noise and repeated-comparison bias; deterministic heldout evaluation remains separate.",
+    "Resume restores PPO optimizer/normalizers/recipient frame, not simulator trajectory or RNG state; official task has no evolving curriculum to restore.",
+    "No automatic budget extension and no automatic restart of crashed production members.",
+    "Official task startup emits nonfatal missing libXt MaterialX renderer messages in headless mode; tested physics and PPO run successfully."
+  ]
+}
