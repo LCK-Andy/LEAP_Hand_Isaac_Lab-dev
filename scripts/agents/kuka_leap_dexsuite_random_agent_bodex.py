@@ -329,7 +329,7 @@ def main():
     # Pin the object at the BODex grasp pose too: the BODex grasps were solved
     # for the cube (0.05x0.1x0.1) at OBJECT_POSE; spawn exactly that cube and
     # hold it there so the floating hands visually align with the object.
-    from isaaclab_tasks.manager_based.manipulation.dexsuite.dexsuite_env_cfg import ObjectCfg
+    from LEAP_Isaaclab.compat.dexsuite.dexsuite_env_cfg import ObjectCfg
     env_cfg.scene.object.spawn = ObjectCfg().cube
     # object_pose is the (possibly randomized) pose computed in the plan block above
     obj_rot_xyzw = convert_quat(torch.tensor(object_pose[3:7], dtype=torch.float32), to="xyzw").numpy()
@@ -448,7 +448,7 @@ def main():
     # that follows the object exactly, so the object cloud is unambiguous.
     from isaaclab.markers import VisualizationMarkers
     from isaaclab.markers.config import RAY_CASTER_MARKER_CFG
-    from isaaclab_tasks.manager_based.manipulation.dexsuite.mdp.utils import sample_object_point_cloud
+    from LEAP_Isaaclab.compat.dexsuite.mdp.utils import sample_object_point_cloud
     from isaaclab.sim.spawners.materials import PreviewSurfaceCfg
 
     obj = env.scene["object"]
@@ -481,7 +481,7 @@ def main():
     # Silence the goal_pose command marker (the red/cyan cluster) so it is not
     # mistaken for the object cloud. It is only a visualization gimmick.
     try:
-        from isaaclab_tasks.manager_based.manipulation.dexsuite import mdp as dexsuite_mdp2
+        from LEAP_Isaaclab.compat.dexsuite import mdp as dexsuite_mdp2
         import isaaclab.managers as mgrs
         # CommandTermCfg.debug_vis toggles the marker; default True.
         # Instead of changing config after env already built, hide the prims directly.

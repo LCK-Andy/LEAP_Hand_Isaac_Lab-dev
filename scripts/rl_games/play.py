@@ -34,6 +34,8 @@ parser.add_argument(
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
+if "--headless" not in parser._option_string_actions:
+    parser.add_argument("--headless", action="store_true")
 # parse the arguments
 args_cli = parser.parse_args()
 # always enable cameras to record video

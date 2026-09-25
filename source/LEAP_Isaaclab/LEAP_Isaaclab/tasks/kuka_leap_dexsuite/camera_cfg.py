@@ -22,8 +22,8 @@ from isaaclab.utils.noise import UniformNoiseCfg as Unoise
 from isaaclab_tasks.utils import PresetCfg
 from isaaclab_tasks.utils.presets import MultiBackendRendererCfg
 
-from isaaclab_tasks.manager_based.manipulation.dexsuite import dexsuite_env_cfg as dexsuite
-from isaaclab_tasks.manager_based.manipulation.dexsuite import mdp
+from LEAP_Isaaclab.compat.dexsuite import dexsuite_env_cfg as dexsuite
+from LEAP_Isaaclab.compat.dexsuite import mdp
 
 from . import force_utils
 

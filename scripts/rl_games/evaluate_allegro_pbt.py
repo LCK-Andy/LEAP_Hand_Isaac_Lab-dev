@@ -14,6 +14,8 @@ parser.add_argument("--max_steps", type=int, default=20000)
 parser.add_argument("--seed", type=int, default=1042)
 parser.add_argument("--output", type=Path, required=True)
 AppLauncher.add_app_launcher_args(parser)
+if "--headless" not in parser._option_string_actions:
+    parser.add_argument("--headless", action="store_true")
 args = parser.parse_args()
 if args.output.exists() or not (args.smoke or args.checkpoint):
     parser.error("Use --smoke or --checkpoint, and a new output path")

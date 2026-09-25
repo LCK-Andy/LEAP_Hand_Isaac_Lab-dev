@@ -20,6 +20,8 @@ parser.add_argument("--adr_fraction", type=float, default=0.0, help="Fixed diffi
 parser.add_argument("--stochastic", action="store_true", help="Sample the saved policy instead of using its mean.")
 parser.add_argument("--output", type=Path, required=True, help="New JSON report; existing files are not overwritten.")
 AppLauncher.add_app_launcher_args(parser)
+if "--headless" not in parser._option_string_actions:
+    parser.add_argument("--headless", action="store_true")
 args = parser.parse_args()
 if args.episodes < 1 or args.num_envs < 1 or args.max_steps < 1 or not 0 <= args.adr_fraction <= 1:
     parser.error("episodes, num_envs and max_steps must be positive; adr_fraction must be in [0, 1]")

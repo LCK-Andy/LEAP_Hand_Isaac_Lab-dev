@@ -10,6 +10,8 @@ parser.add_argument("--checkpoint", type=Path, required=True)
 parser.add_argument("--num_envs", type=int, default=8)
 parser.add_argument("--seed", type=int, default=1042)
 AppLauncher.add_app_launcher_args(parser)
+if "--headless" not in parser._option_string_actions:
+    parser.add_argument("--headless", action="store_true")
 args = parser.parse_args()
 args.checkpoint = args.checkpoint.resolve(strict=True)
 launcher = AppLauncher(args)

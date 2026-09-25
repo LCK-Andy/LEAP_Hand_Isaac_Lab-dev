@@ -1,6 +1,6 @@
 """Configuration for the direct-RL port of the official Dexsuite KUKA+Allegro Lift task.
 
-Mirrors ``isaaclab_tasks.manager_based.manipulation.dexsuite`` (KukaAllegro
+Mirrors ``LEAP_Isaaclab.compat.dexsuite`` (KukaAllegro
 scene + Lift env cfg): same robot asset, table, goal ranges, reward weights,
 ADR curriculum, observation content, and per-fingertip ContactSensors --
 restructured into a DirectRLEnv.

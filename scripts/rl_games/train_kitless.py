@@ -9,7 +9,7 @@ The rl_games counterpart of ``scripts/rsl_rl/train_kitless.py``: the official
 ``scripts/rl_games/train.py`` builds an ``AppLauncher`` first, so it can never run
 without Isaac Sim. Here the environment AND agent configs are resolved BEFORE
 launching anything and handed to
-:func:`isaaclab_tasks.utils.sim_launcher.launch_simulation`:
+:func:`isaaclab.app.sim_launcher.launch_simulation`:
 
 * Tasks whose physics is a kit-less backend (e.g. a ``NewtonCfg`` preset) run
   WITHOUT Isaac Sim / Omniverse Kit entirely -- seconds-fast startup, no
@@ -76,7 +76,7 @@ from isaaclab_rl.rl_games import RlGamesGpuEnv, RlGamesVecEnvWrapper
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils.hydra import resolve_task_config
-from isaaclab_tasks.utils.sim_launcher import launch_simulation
+from isaaclab.app.sim_launcher import launch_simulation
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True

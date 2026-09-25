@@ -7,7 +7,7 @@
 
 Unlike ``train.py`` (which always launches the Isaac Sim app first), this
 script resolves the environment config BEFORE launching anything and hands it
-to :func:`isaaclab_tasks.utils.sim_launcher.launch_simulation`:
+to :func:`isaaclab.app.sim_launcher.launch_simulation`:
 
 * Tasks whose physics is a kit-less backend (e.g. a ``NewtonCfg`` preset) run
   WITHOUT Isaac Sim / Omniverse Kit entirely -- seconds-fast startup, no
@@ -61,7 +61,7 @@ from isaaclab.utils.io import dump_yaml
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import resolve_task_config
-from isaaclab_tasks.utils.sim_launcher import launch_simulation
+from isaaclab.app.sim_launcher import launch_simulation
 
 import LEAP_Isaaclab.tasks  # noqa: F401  (registers the custom gym ids before config resolution)
 

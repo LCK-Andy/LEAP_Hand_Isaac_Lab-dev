@@ -14,7 +14,7 @@
 # --------------------------------------------------------
 
 from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg, NewtonCollisionPipelineCfg
-from isaaclab_ovphysx.physics import OvPhysxCfg
+from isaaclab_ov.physics import OvPhysxCfg
 from isaaclab_physx.physics import PhysxCfg
 
 import isaaclab.sim as sim_utils
@@ -35,7 +35,7 @@ from LEAP_Isaaclab.assets import LEAP_HAND_CFG  # isort: skip
 @configclass
 class ObjectCfg(PresetCfg):
     physx = RigidObjectCfg(
-        prim_path="/World/envs/env_.*/object",
+        prim_path="/World/envs/env_[^/]+/object",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
@@ -54,7 +54,7 @@ class ObjectCfg(PresetCfg):
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, -0.10, 0.56), rot=(0.0, 0.0, 0.0, 1.0)),
     )
     newton_mjwarp = ArticulationCfg(
-        prim_path="/World/envs/env_.*/object",
+        prim_path="/World/envs/env_[^/]+/object",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
             mass_props=sim_utils.MassPropertiesCfg(density=400.0),
@@ -67,7 +67,7 @@ class ObjectCfg(PresetCfg):
         articulation_root_prim_path="",
     )
     ovphysx = RigidObjectCfg(
-        prim_path="/World/envs/env_.*/object",
+        prim_path="/World/envs/env_[^/]+/object",
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
@@ -159,7 +159,7 @@ class LeapHandDirectEnvCfg(DirectRLEnvCfg):
         physics=PhysicsCfg(),
     )
     # robot
-    robot_cfg: ArticulationCfg = LEAP_HAND_CFG.replace(prim_path="/World/envs/env_.*/Robot")
+    robot_cfg: ArticulationCfg = LEAP_HAND_CFG.replace(prim_path="/World/envs/env_[^/]+/Robot")
 
     actuated_joint_names = [f"a_{i}" for i in range(16)]
     fingertip_body_names = [

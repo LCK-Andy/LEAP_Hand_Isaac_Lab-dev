@@ -100,7 +100,7 @@ def patch_dexsuite_mdp() -> None:
     (force_matrix_w is (num_envs, num_filters, 3)), so stock helpers crash.
     Swapping the module-level names makes all Dexsuite terms use our helpers.
     """
-    import isaaclab_tasks.manager_based.manipulation.dexsuite.mdp.rewards as _rewards
+    import LEAP_Isaaclab.compat.dexsuite.mdp.rewards as _rewards
 
     _rewards.contacts = contacts
     _rewards.contact_count = contact_count

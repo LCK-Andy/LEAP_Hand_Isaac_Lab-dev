@@ -46,7 +46,7 @@ if not any(a.startswith("presets=") for a in hydra_args):
 sys.argv = [sys.argv[0]] + hydra_args
 
 from isaaclab_tasks.utils.hydra import resolve_task_config  # noqa: E402
-from isaaclab_tasks.utils.sim_launcher import launch_simulation  # noqa: E402
+from isaaclab.app.sim_launcher import launch_simulation  # noqa: E402
 
 TASK = args_cli.task
 env_cfg, _ = resolve_task_config(TASK, "rsl_rl_cfg_entry_point")

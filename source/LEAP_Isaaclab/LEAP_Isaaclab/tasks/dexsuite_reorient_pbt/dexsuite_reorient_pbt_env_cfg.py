@@ -3,11 +3,11 @@
 from isaaclab.managers import CurriculumTermCfg
 from isaaclab.utils.configclass import configclass
 
-from isaaclab_tasks.manager_based.manipulation.dexsuite.config.kuka_allegro.dexsuite_kuka_allegro_env_cfg import (
+from LEAP_Isaaclab.compat.dexsuite.config.kuka_allegro.dexsuite_kuka_allegro_env_cfg import (
     DexsuiteKukaAllegroReorientEnvCfg,
     DexsuiteKukaAllegroReorientEnvCfg_PLAY,
 )
-from isaaclab_tasks.manager_based.manipulation.dexsuite.mdp.curriculums import DifficultyScheduler
+from LEAP_Isaaclab.compat.dexsuite.mdp.curriculums import DifficultyScheduler
 
 from .evaluation import anneal_success_tolerance
 

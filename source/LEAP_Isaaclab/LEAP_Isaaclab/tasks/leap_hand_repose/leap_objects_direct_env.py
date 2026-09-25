@@ -37,7 +37,7 @@ from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_from_usd, spawn_ground_plane
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.math import sample_uniform
-from isaaclab_tasks.direct.inhand_manipulation.inhand_manipulation_env import randomize_rotation
+from LEAP_Isaaclab.compat.inhand_direct.inhand_manipulation_env import randomize_rotation
 
 from .leap_direct_env import LeapHandDirectEnv
 from .leap_direct_env_cfg import LeapHandDirectEnvCfg

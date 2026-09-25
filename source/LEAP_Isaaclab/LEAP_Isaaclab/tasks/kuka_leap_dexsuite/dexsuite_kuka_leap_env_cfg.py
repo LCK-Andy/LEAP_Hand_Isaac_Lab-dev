@@ -21,8 +21,8 @@ from isaaclab_tasks.utils import PresetCfg
 
 from LEAP_Isaaclab.assets import KUKA_LEAP_CFG
 
-from isaaclab_tasks.manager_based.manipulation.dexsuite import dexsuite_env_cfg as dexsuite
-from isaaclab_tasks.manager_based.manipulation.dexsuite import mdp as dexsuite_mdp
+from LEAP_Isaaclab.compat.dexsuite import dexsuite_env_cfg as dexsuite
+from LEAP_Isaaclab.compat.dexsuite import mdp as dexsuite_mdp
 
 from . import force_utils
 

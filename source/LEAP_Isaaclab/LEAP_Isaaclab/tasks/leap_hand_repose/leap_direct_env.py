@@ -40,7 +40,7 @@ import torch
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.sim import spawners as sim_utils
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
-from isaaclab_tasks.direct.inhand_manipulation.inhand_manipulation_env import (
+from LEAP_Isaaclab.compat.inhand_direct.inhand_manipulation_env import (
     InHandManipulationEnv,
     rotation_distance,
 )
@@ -80,7 +80,9 @@ class LeapHandDirectEnv(InHandManipulationEnv):
         # add ground plane
         spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg())
         # clone and replicate (reporter schemas replicate to every env)
-        self.scene.clone_environments(copy_from_source=False)
+        from LEAP_Isaaclab.compat.scene import clone_environments
+
+        clone_environments(self.scene)
         # register entities (same keys as the official env)
         self.scene.articulations["robot"] = self.hand
         self.scene.rigid_objects["object"] = self.object
@@ -226,13 +228,16 @@ class LeapHandDirectEnv(InHandManipulationEnv):
         """
         if not self.fingertip_contact_sensors:
             return torch.zeros((self.num_envs, len(self.cfg.fingertip_body_names), 3), device=self.device)
-        return torch.stack(
-            [
-                self.fingertip_contact_sensors[n].data.net_forces_w.torch.reshape(self.num_envs, 3)
-                for n in self.cfg.fingertip_body_names
-            ],
-            dim=1,
-        )
+        forces = []
+        for name in self.cfg.fingertip_body_names:
+            data = self.fingertip_contact_sensors[name].data
+            # EA separates normal/friction forces. PhysX reports normal forces;
+            # the partner matrix, unlike net_forces_w, excludes hand/ground contact.
+            matrix = data.normal_force_matrix_w if self._physics_backend == "physx" else data.force_matrix_w
+            if matrix is None:
+                raise RuntimeError(f"Filtered fingertip contact data unavailable for {name} on {self._physics_backend}")
+            forces.append(matrix.torch.reshape(self.num_envs, -1, 3).sum(dim=1))
+        return torch.stack(forces, dim=1)
 
     def _get_observations(self) -> dict:
         # official 124-d "full" obs + 12 tactile channels (4 pulps x 3 filtered

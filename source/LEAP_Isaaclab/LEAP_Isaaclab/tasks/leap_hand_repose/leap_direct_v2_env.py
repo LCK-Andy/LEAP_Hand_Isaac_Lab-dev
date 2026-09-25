@@ -24,7 +24,7 @@ from isaaclab.assets import Articulation, RigidObject
 from isaaclab.sensors import Camera
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 
-from isaaclab_tasks.direct.inhand_manipulation.inhand_manipulation_env import InHandManipulationEnv
+from LEAP_Isaaclab.compat.inhand_direct.inhand_manipulation_env import InHandManipulationEnv
 
 from .leap_direct_v2_env_cfg import LeapHandDirectV2EnvCfg
 

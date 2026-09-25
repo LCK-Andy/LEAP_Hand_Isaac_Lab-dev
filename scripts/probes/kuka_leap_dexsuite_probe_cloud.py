@@ -14,7 +14,7 @@ AppLauncher(launcher_args=args_cli)
 import gymnasium as gym
 import LEAP_Isaaclab.tasks
 from LEAP_Isaaclab.tasks.kuka_leap_dexsuite.dexsuite_kuka_leap_env_cfg import DexsuiteKukaLeapReorientEnvCfg
-from isaaclab_tasks.manager_based.manipulation.dexsuite.mdp.utils import sample_object_point_cloud
+from LEAP_Isaaclab.compat.dexsuite.mdp.utils import sample_object_point_cloud
 from isaaclab_tasks.utils import resolve_task_config
 
 env_cfg, _ = resolve_task_config("Isaac-Dexsuite-Kuka-LEAP-Reorient-v0", "")

@@ -12,7 +12,7 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.configclass import configclass
 
-import isaaclab_tasks.manager_based.manipulation.inhand.inhand_env_cfg as inhand_env_cfg
+import LEAP_Isaaclab.compat.inhand.inhand_env_cfg as inhand_env_cfg
 
 from .mdp import (
     fingertip_object_dist_sq,
