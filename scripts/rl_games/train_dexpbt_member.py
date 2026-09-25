@@ -6,7 +6,10 @@ import argparse
 import importlib.util
 import os
 import sys
+import time
 from pathlib import Path
+
+PROCESS_STARTED_AT = time.time()
 
 # Load only the pure helper pre-app: importing the task package here imports pxr
 # and breaks pip Isaac Sim startup. Preserve argv BEFORE argparse/Hydra consume it.
@@ -43,12 +46,16 @@ parser.add_argument(
 parser.add_argument("--sigma", type=float, default=None, help="RL-Games raw log-standard-deviation override (bounded)")
 parser.add_argument("--max_iterations", type=int, default=None)
 AppLauncher.add_app_launcher_args(parser)
+# EA still accepts the launcher kwarg but no longer registers this legacy CLI flag.
+if "--headless" not in parser._option_string_actions:
+    parser.add_argument("--headless", action="store_true")
 args_cli, hydra_args = parser.parse_known_args(remaining)
 if args_cli.distributed or int(os.environ.get("WORLD_SIZE", 1)) != 1:
     parser.error("DexPBT supports one process per member; distributed PPO restarts are unsupported")
 if args_cli.pbt_resume and not args_cli.checkpoint:
     parser.error("--pbt-resume requires --checkpoint")
 args_cli.original_argv = ORIGINAL_ARGV
+args_cli.process_started_at = PROCESS_STARTED_AT
 if args_cli.video:
     args_cli.enable_cameras = True
 sys.argv = [sys.argv[0], *hydra_args]
@@ -160,6 +167,12 @@ def main(env_cfg, agent_cfg):
         if args_cli.task != "Isaac-Repose-Cube-Allegro-Direct-v0":
             raise ValueError("allegro_goals requires the unmodified official Allegro Direct task")
         from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.allegro import attach_measurement
+
+        attach_measurement(env.unwrapped)
+    elif cfg.objective == "contact_goals":
+        if args_cli.task != "Isaac-Contact-Cube-LEAP-Direct-v0":
+            raise ValueError("contact_goals requires the native LEAP contact Direct task")
+        from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.contact import attach_measurement
 
         attach_measurement(env.unwrapped)
     exploration = None

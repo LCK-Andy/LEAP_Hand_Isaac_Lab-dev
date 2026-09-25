@@ -163,6 +163,32 @@ def test_plain_checkpoint_fallback_uses_restored_age_and_is_published(tmp_path):
     assert utils.rng_state(fresh.rng) != states[0]
 
 
+def test_copy_only_bypasses_mutation_and_keeps_recipient_rng(tmp_path, monkeypatch):
+    pbt = load_module("pbt")
+    runtime = load_module("runtime")
+    monkeypatch.setattr(pbt.os, "execv", lambda *_: None)
+    donor, donor_algo = observer_at(pbt, tmp_path, 0)
+    donor_algo.last_lr = 0.02  # copy-only must not even clamp adaptive LR
+    publish(donor, donor_algo, 100, success=4)
+    recipient, algo = observer_at(pbt, tmp_path, 1)
+    recipient.cfg.copy_only = True
+    publish(recipient, algo, 200, success=0)
+    before = runtime.resume_metadata(recipient.curr_policy_dir + "/000000000002.pth")
+    staged = restart_record(recipient)
+    assert staged["params"]["agent.params.config.learning_rate"] == 0.02
+    assert staged["pbt_rng_state"] == before["pbt_rng_state"]
+
+
+def test_mutation_arms_preserve_realized_initial_configuration():
+    pbt = load_module("pbt")
+    values = []
+    for knobs in ({}, {"mutation_rate": 1.0}, {"copy_only": True}, {"change_range": [1.05, 1.2]}):
+        settings = config(1)
+        settings["pbt"].update(objective="allegro_goals", **knobs)
+        values.append(pbt.initialize_population(settings))
+    assert all(value == values[0] for value in values)
+
+
 def test_initial_population_diversity_keeps_seed_pairs_and_baseline():
     pbt = load_module("pbt")
     original = config(0)

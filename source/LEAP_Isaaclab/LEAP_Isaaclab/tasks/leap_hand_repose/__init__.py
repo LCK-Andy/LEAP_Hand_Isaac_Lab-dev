@@ -146,6 +146,7 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": f"{__name__}.leap_contact_direct_env_cfg:LeapContactDirectEnvCfg",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_contact_direct_cfg:LeapContactDirectPPORunnerCfg",
+        "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_contact_cfg.yaml",
     },
 )
 
@@ -156,6 +157,7 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": f"{__name__}.leap_contact_direct_env_cfg:LeapContactDirectEnvCfg_PLAY",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_contact_direct_cfg:LeapContactDirectPPORunnerCfg",
+        "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_contact_cfg.yaml",
     },
 )
 

@@ -1,15 +1,27 @@
 """Completed-episode asynchronous PBT with recipient-owned restart transactions."""
 
+import json
 import os
 import random
 import sys
+import time
 
 from rl_games.common.algo_observer import AlgoObserver
 
 from . import pbt_utils
 from .mutation import mutate
 from .pbt_cfg import PbtCfg
-from .runtime import PREFIX, SUPPORTED, apply_overrides, effective_params, install_restore, restart_command
+from .runtime import (
+    PREFIX,
+    SUPPORTED,
+    apply_overrides,
+    budget_reached,
+    effective_params,
+    install_restore,
+    install_train_guard,
+    restart_command,
+    resume_metadata,
+)
 
 
 def initialize_population(params, resumed=False):
@@ -21,7 +33,7 @@ def initialize_population(params, resumed=False):
             values,
             cfg.mutation,
             1.0,
-            cfg.change_range,
+            (1.1, 1.5) if cfg.objective == "allegro_goals" else cfg.change_range,
             cfg.mutation_bounds,
             rng=random.Random(int(params["params"]["seed"]) + cfg.policy_idx),
         )
@@ -50,10 +62,20 @@ class PbtAlgoObserver(AlgoObserver):
         if not set(self.cfg.mutation).issubset(self.pbt_params):
             raise ValueError("Mutation keys must name supported live PPO config parameters")
         from .allegro import GoalWindow
+        from .contact import ContactWindow
 
-        self.window = GoalWindow() if self.cfg.objective == "allegro_goals" else pbt_utils.EpisodeWindow()
+        self.count_objective = self.cfg.objective in {"allegro_goals", "contact_goals"}
+        self.window = {"allegro_goals": GoalWindow, "contact_goals": ContactWindow, "dexpbt": pbt_utils.EpisodeWindow}[
+            self.cfg.objective
+        ]()
         self.pbt_it = None
         self.last_exploit_frame = (self.resume or {}).get("last_exploit_frame", 0)
+        self.evidence = dict((self.resume or {}).get("selection_evidence", {}))
+        self.lineage = (self.resume or {}).get("lineage", f"member-{self.cfg.policy_idx}")
+        self.segment_rollouts = 0
+        self.process_started_at = getattr(args_cli, "process_started_at", time.time())
+        self.segment_started_at = time.monotonic()
+        self.replacement_reported = False
 
     def after_init(self, algo):
         self.algo = algo
@@ -62,6 +84,8 @@ class PbtAlgoObserver(AlgoObserver):
         if self.cfg.enabled:
             os.makedirs(self.curr_policy_dir, exist_ok=True)
         install_restore(algo, self.pbt_params, self.resume)
+        if hasattr(algo, "train"):
+            install_train_guard(algo, self.after_print_stats)
         if self.plain_checkpoint:
             restore = algo.restore
 
@@ -86,18 +110,46 @@ class PbtAlgoObserver(AlgoObserver):
     def after_steps(self):
         # rl-games calls after_steps BEFORE PPO updates and before incrementing frame.
         # Publish in after_print_stats instead so weights/optimizer and frame agree.
-        pass
+        self.segment_rollouts += 1
 
     def after_print_stats(self, frame, epoch_num, total_time):
         if not self.cfg.enabled:
             return
         current = int(self.algo.frame)
+        if self.segment_rollouts:
+            phase = "cold_first_19" if self.segment_rollouts <= 19 else "steady"
+            writer = self.algo.writer
+            if hasattr(writer, "add_scalar"):
+                writer.add_scalar("pbt/cold_first_19", int(self.segment_rollouts <= 19), current)
+                writer.add_scalar("pbt/segment_rollout", self.segment_rollouts, current)
+            if self.segment_rollouts in (1, 19, 20):
+                print(
+                    f"[pbt] measurement_phase={phase} rollout={self.segment_rollouts} frame={current} raw_unchanged=true",
+                    flush=True,
+                )
+            if not self.replacement_reported:
+                event = {
+                    "event": "segment_first_update",
+                    "frame": current,
+                    "lineage": self.lineage,
+                    "process_to_first_update_seconds": time.time() - self.process_started_at,
+                    "observer_to_first_update_seconds": time.monotonic() - self.segment_started_at,
+                }
+                if (self.resume or {}).get("replacement_started_at") is not None:
+                    event["replacement_to_first_update_seconds"] = time.time() - self.resume["replacement_started_at"]
+                print("[pbt-profile] " + json.dumps(event), flush=True)
+                self.replacement_reported = True
+        terminal = budget_reached(self.algo)
         iteration = current // self.cfg.interval_steps
         if self.pbt_it is None:
             restored_frame = (self.resume or {}).get("recipient_frame", (self.resume or {}).get("frame", 0))
             self.pbt_it = int(restored_frame) // self.cfg.interval_steps
-        if iteration <= self.pbt_it:
+        if iteration <= self.pbt_it and not terminal:
             return
+        if terminal and os.path.exists(os.path.join(self.curr_policy_dir, "final.yaml")):
+            saved = resume_metadata(os.path.join(self.curr_policy_dir, "final.pth"))
+            if saved and saved["frame"] == current and saved["epoch"] == self.algo.epoch_num:
+                return
         self.pbt_it = iteration
         evaluations = self.window.ready(self.cfg, current)
         # Publish even during warm-up/no resets, enabling exact manual resume, but
@@ -116,19 +168,41 @@ class PbtAlgoObserver(AlgoObserver):
             evaluations=evaluations,
             last_exploit_frame=self.last_exploit_frame,
             pbt_rng_state=pbt_utils.rng_state(self.rng),
+            terminal=terminal,
+            rollout_frames=int(getattr(self.algo, "batch_size_envs", 0)),
+            selection_evidence=self.evidence,
+            lineage=self.lineage,
+            segment_rollouts=self.segment_rollouts,
+            cold_first_19=self.segment_rollouts <= 19,
         )
-        pbt_utils.cleanup({}, self.curr_policy_dir, max_yaml=3 if self.cfg.objective == "allegro_goals" else 50)
+        pbt_utils.cleanup({}, self.curr_policy_dir, max_yaml=3 if self.count_objective else 50)
+        if terminal:
+            print(
+                f"[pbt] final_checkpoint frame={current} epoch={self.algo.epoch_num} path={own['checkpoint']} "
+                f"objective={self.cfg.objective} score={score if evaluations else None} "
+                f"episodes={sum(g['completed_episodes'] for g in evaluations.values())}",
+                flush=True,
+            )
+            return
         if not evaluations:
             return
         # Consume each local window once, never select repeatedly on stale episodes.
         self.window.consume()
         # Allegro compares fresh samples regardless of asynchronous lifetime age.
-        latest = float("inf") if self.cfg.objective == "allegro_goals" else iteration
+        latest = float("inf") if self.count_objective else iteration
         records = pbt_utils.load_pbt_ckpts(self.ws_dir, self.cfg.policy_idx, self.cfg.num_policies, latest)
         if self.cfg.objective == "allegro_goals":
             print(
                 f"[pbt] publication member={self.cfg.policy_idx} frame={current} goals/episode={score:.6f} "
                 f"episodes={sum(g['completed_episodes'] for g in evaluations.values())}",
+                flush=True,
+            )
+        if self.cfg.objective == "contact_goals":
+            stats = evaluations["native_contact"]
+            print(
+                f"[pbt] publication member={self.cfg.policy_idx} frame={current} "
+                f"held_goals/episode={stats['goals_per_episode']:.6f} "
+                f"touch_occupancy={stats['progress']:.6f} episodes={stats['completed_episodes']}",
                 flush=True,
             )
         if current < self.cfg.warmup_steps or current - self.last_exploit_frame < self.cfg.adaptation_steps:
@@ -138,20 +212,37 @@ class PbtAlgoObserver(AlgoObserver):
         if self.cfg.objective == "allegro_goals":
             from .allegro import select_goal_donor
 
-            donor_id = select_goal_donor(records, own, self.cfg)
+            diagnostics = []
+            donor_id = select_goal_donor(records, own, self.cfg, evidence=self.evidence, diagnostics=diagnostics)
+            own["selection_evidence"] = self.evidence
+            pbt_utils.atomic_yaml(own["pbt_checkpoint"], own)
+            for detail in diagnostics:
+                print(
+                    "[pbt-selection] " + json.dumps({"member": self.cfg.policy_idx, "frame": current, **detail}),
+                    flush=True,
+                )
+            print(f"[pbt] selection member={self.cfg.policy_idx} frame={current} donor={donor_id}", flush=True)
+        elif self.cfg.objective == "contact_goals":
+            from .contact import select_contact_donor
+
+            donor_id = select_contact_donor(records, own, self.cfg)
             print(f"[pbt] selection member={self.cfg.policy_idx} frame={current} donor={donor_id}", flush=True)
         else:
             donor_id = pbt_utils.select_donor(records, own, self.cfg)
         if donor_id is None:
             return
         donor = records[donor_id]
-        new_params = mutate(
-            donor["params"],
-            self.cfg.mutation,
-            self.cfg.mutation_rate,
-            self.cfg.change_range,
-            self.cfg.mutation_bounds,
-            rng=self.rng,
+        new_params = (
+            dict(donor["params"])
+            if self.cfg.copy_only
+            else mutate(
+                donor["params"],
+                self.cfg.mutation,
+                self.cfg.mutation_rate,
+                self.cfg.change_range,
+                self.cfg.mutation_bounds,
+                rng=self.rng,
+            )
         )
         # The normal publication precedes the tournament; restart must capture the
         # recipient stream AFTER mutation, not that publication or the donor stream.
@@ -161,6 +252,26 @@ class PbtAlgoObserver(AlgoObserver):
         except FileNotFoundError:
             print("[pbt] Donor pruned during copy; defer to the next fresh tournament", flush=True)
             return
+        event = resume_metadata(checkpoint, metadata)
+        print(
+            "[pbt-replacement] "
+            + json.dumps(
+                {
+                    "member": self.cfg.policy_idx,
+                    "frame": current,
+                    "donor": donor_id,
+                    "lineage": event["lineage"],
+                    "donor_lineage": event["donor_lineage"],
+                    "recipient_previous_lineage": self.lineage,
+                    "copy_only": self.cfg.copy_only,
+                    "checkpoint_copy_seconds": event["checkpoint_copy_seconds"],
+                    "changed_parameters": {
+                        k: [donor["params"][k], v] for k, v in new_params.items() if donor["params"][k] != v
+                    },
+                }
+            ),
+            flush=True,
+        )
         command = restart_command(self.original_argv, sys.executable, checkpoint, metadata, new_params)
         self.algo.writer.flush()
         self.algo.writer.close()

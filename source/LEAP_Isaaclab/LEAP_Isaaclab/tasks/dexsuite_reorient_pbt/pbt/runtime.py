@@ -3,9 +3,8 @@
 import json
 import math
 import re
-from pathlib import Path
-
 import yaml
+from pathlib import Path
 
 PREFIX = "agent.params.config."
 SUPPORTED = {"learning_rate", "entropy_coef", "grad_norm", "kl_threshold"}
@@ -128,13 +127,41 @@ def apply_effective_params(algo, params):
             algo.scheduler.kl_threshold = value
 
 
+def budget_reached(algo):
+    """Read actual post-update/restored counters, never the lagging callback frame."""
+    return any(
+        limit != -1 and current >= limit
+        for current, limit in (
+            (algo.epoch_num, getattr(algo, "max_epochs", -1)),
+            (algo.frame, getattr(algo, "max_frames", -1)),
+        )
+    )
+
+
+def install_train_guard(algo, terminal_callback):
+    """Guard the public train entry AFTER Runner.restore, before native init/update.
+
+    Native rl-games checks limits only after an update. Keep its loop and final
+    saves unchanged for active runs, but never enter it for a completed resume.
+    """
+    train = algo.train
+
+    def guarded(*args, **kwargs):
+        if budget_reached(algo):
+            terminal_callback(algo.frame, algo.epoch_num, 0.0)
+            print(f"[pbt] budget_complete frame={algo.frame} epoch={algo.epoch_num}; no update", flush=True)
+            return getattr(algo, "last_mean_rewards", None), algo.epoch_num
+        return train(*args, **kwargs)
+
+    algo.train = guarded
+
+
 def install_restore(algo, params, metadata=None):
     """Compose around public restore: donor state first, effective settings/recipient age last."""
     restore = algo.restore
 
     def wrapped(checkpoint, *args, **kwargs):
         import tempfile
-
         import torch
 
         # RL-Games restores before torch.compile, but saves after compilation.

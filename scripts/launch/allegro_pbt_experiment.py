@@ -18,14 +18,47 @@ parser.add_argument("--envs", type=int, default=1024)
 parser.add_argument("--epochs", type=int, default=2048)
 parser.add_argument("--probe", action="store_true")
 parser.add_argument("--launch", action="store_true")
+parser.add_argument(
+    "--arms",
+    nargs="+",
+    choices=[
+        "baseline",
+        "control",
+        "selective",
+        "copy-only",
+        "gentler",
+        "diversity",
+        "maturity",
+        "evidence",
+        "cadence",
+    ],
+    default=["baseline", "control"],
+)
+parser.add_argument(
+    "--gate-se",
+    type=float,
+    choices=[1.0, 2.0],
+    default=2.0,
+    help="Copy-only comparator gate; compare to baseline (1) or selective (2)",
+)
+parser.add_argument("--seed-base", type=int, default=42, help="Change per independent population replicate")
+parser.add_argument("--gpus", type=int, nargs="+", default=[0, 1])
 args = parser.parse_args()
+if args.envs <= 0 or args.epochs <= 0 or args.seed_base < 0 or len(set(args.arms)) != len(args.arms):
+    parser.error("positive envs/epochs, nonnegative seed-base, and unique arms required")
+if len(set(args.gpus)) != len(args.gpus) or min(args.gpus) < 0:
+    parser.error("GPU ids must be unique and nonnegative")
+if args.launch and len(args.arms) > 2:
+    parser.error("Launch at most two paired arms together; generate larger plans without --launch")
 root = args.root.resolve()
 root.mkdir(parents=True, exist_ok=True)
 plans = []
-for arm in (["probe"] if args.probe else ["pbt", "control"]):
+for arm in (["probe"] if args.probe else args.arms):
     for member in range(1 if args.probe else 4):
         name = f"allegro-{arm}-{member}"
-        gpu = member // 2
+        gpu = args.gpus[(member // 2) % len(args.gpus)]
+        rollout_frames = args.envs * 16
+        steps = args.epochs * rollout_frames
         directory = root / arm
         log = directory / f"member_{member}.log"
         if log.exists():
@@ -42,24 +75,28 @@ for arm in (["probe"] if args.probe else ["pbt", "control"]):
             "--max_iterations",
             str(args.epochs),
             "--seed",
-            str(42 + member),
+            str(args.seed_base + member),
             "--headless",
             "pbt.enabled=true",
-            f"pbt.selection_enabled={'true' if arm == 'pbt' else 'false'}",
+            f"pbt.selection_enabled={'false' if arm in ('control', 'probe') else 'true'}",
             "pbt.objective=allegro_goals",
             f"pbt.policy_idx={member}",
             "pbt.num_policies=4",
             f"pbt.directory={directory}",
-            "pbt.interval_steps=524288",
-            "pbt.warmup_steps=3145728",
-            "pbt.adaptation_steps=1572864",
+            f"pbt.interval_steps={rollout_frames * (64 if arm == 'cadence' else 32)}",
+            f"pbt.warmup_steps={rollout_frames * 192}",
+            f"pbt.adaptation_steps={rollout_frames * 96}",
             "pbt.max_frame_lag=2097152",
             "pbt.max_score_age_seconds=1800",
             "pbt.min_completed_episodes=512",
             "pbt.threshold_abs=0.001",
-            "pbt.threshold_std=1.0",
+            f"pbt.threshold_std={args.gate_se if arm == 'copy-only' else 2.0 if arm == 'selective' else 1.0}",
             "pbt.change_range=[1.1,1.5]",
-            "pbt.mutation_rate=1.0",
+            f"pbt.mutation_rate={0.33 if arm == 'gentler' else 1.0}",
+            f"pbt.copy_only={'true' if arm == 'copy-only' else 'false'}",
+            f"pbt.recipient_role={'weakest' if arm == 'diversity' else 'any'}",
+            f"pbt.donor_maturity_rollouts={64 if arm == 'maturity' else 0}",
+            f"pbt.evidence_windows={2 if arm == 'evidence' else 1}",
             "pbt.initial_diversity=true",
             'pbt.mutation={"agent.params.config.learning_rate":"mutate_float",'
             '"agent.params.config.grad_norm":"mutate_float",'
@@ -68,6 +105,8 @@ for arm in (["probe"] if args.probe else ["pbt", "control"]):
             '"agent.params.config.grad_norm":[0.5,5.0],'
             '"agent.params.config.kl_threshold":[0.005,0.03]}',
             'params.env.obs_groups={"obs":["policy"],"states":["policy"]}',
+            f"params.config.max_frames={steps}",
+            "params.config.horizon_length=16",
             "params.config.minibatch_size=8192",
             "params.config.save_frequency=512",
             "params.config.save_best_after=0",
@@ -88,9 +127,13 @@ for arm in (["probe"] if args.probe else ["pbt", "control"]):
                 session=name,
                 arm=arm,
                 member=member,
-                seed=42 + member,
+                seed=args.seed_base + member,
                 gpu=gpu,
-                steps=args.epochs * args.envs * 16,
+                steps=steps,
+                epochs=args.epochs,
+                final_checkpoint=str(directory / f"logs/rl_games/allegro_hand/pbt_workspace/{member:03d}/final.pth"),
+                metric="native_completed_goals_per_episode",
+                pilot_only=True,
                 script=str(script),
                 log=str(log),
                 argv=command,
@@ -98,7 +141,10 @@ for arm in (["probe"] if args.probe else ["pbt", "control"]):
         )
 # Preflight all session identities before launching anything.
 for plan in plans:
-    if subprocess.run(["tmux", "has-session", "-t", plan["session"]], capture_output=True).returncode == 0:
+    if (
+        args.launch
+        and subprocess.run(["tmux", "has-session", "-t", plan["session"]], capture_output=True).returncode == 0
+    ):
         raise SystemExit(f"Session already exists: {plan['session']}")
 (root / ("probe.json" if args.probe else "experiment.json")).write_text(json.dumps(plans, indent=2) + "\n")
 if args.launch:

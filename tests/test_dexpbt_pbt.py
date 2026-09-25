@@ -368,6 +368,81 @@ def test_checkpoint_retention_without_eligible_episodes(tmp_path):
     assert not (directory / "000000000001.pth").exists()
 
 
+def test_terminal_callback_publishes_without_exploit_even_off_cadence(tmp_path, monkeypatch):
+    import pytest
+
+    pbt = load_module("pbt")
+    runtime = load_module("runtime")
+    monkeypatch.setattr(pbt.os, "execv", lambda *_: pytest.fail("terminal exploit"))
+    for member, frame, success in ((0, 100, 4), (1, 150, 0)):
+        settings = config(member)
+        algo = FakeAlgo(tmp_path, settings, "terminal")
+        algo.max_epochs, algo.max_frames = -1, 150
+        observer = pbt.PbtAlgoObserver(settings, types.SimpleNamespace(original_argv=["train.py"]))
+        observer.after_init(algo)
+        algo.frame, algo.epoch_num = frame, 2
+        observer.process_infos(episode_info(success=success), [])
+        # Native callback argument lags the actual post-update frame.
+        observer.after_print_stats(frame - 50, 2, 0)
+    final = runtime.resume_metadata(str(tmp_path / "pbt_workspace/001/final.pth"))
+    assert final["frame"] == 150 and final["terminal"]
+    assert final["evaluations"]
+
+
+def test_installed_rl_games_loop_terminal_and_completed_resume(tmp_path):
+    import torch
+
+    from rl_games.algos_torch.a2c_continuous import A2CAgent
+
+    pbt = load_module("pbt")
+    runtime = load_module("runtime")
+    for limit in ("max_epochs", "max_frames"):
+        settings = config()
+        algo = FakeAlgo(tmp_path / limit, settings, "native-loop")
+        algo.max_epochs = 1 if limit == "max_epochs" else -1
+        algo.max_frames = 100 if limit == "max_frames" else -1
+        algo.batch_size_envs = 100
+        algo.num_agents = algo.value_size = 1
+        algo.multi_gpu = algo.print_stats = False
+        algo.global_rank = 0
+        algo.nn_dir = str(tmp_path)
+        algo.config["name"] = "terminal"
+        algo.dataset = types.SimpleNamespace(update_values_dict=lambda _: None)
+        algo.diagnostics = types.SimpleNamespace(epoch=lambda *a, **kw: None)
+        algo.game_rewards = types.SimpleNamespace(current_size=0)
+        updates, resets, saves = [], [], []
+        algo.init_tensors = lambda: resets.append("init")
+        algo.env_reset = lambda: resets.append("reset")
+
+        def update_epoch():
+            algo.epoch_num += 1
+            return algo.epoch_num
+
+        def train_epoch():
+            updates.append(algo.epoch_num)
+            return (0.1, 0.1, 0.1, 0.3, [], [], [], [], [], 0.001, 1.0)
+
+        algo.update_epoch = update_epoch
+        algo.train_epoch = train_epoch
+        algo.save = lambda path: saves.append(path)
+        algo.train = types.MethodType(A2CAgent.train, algo)
+        observer = pbt.PbtAlgoObserver(settings, types.SimpleNamespace(original_argv=["train.py"]))
+        observer.after_init(algo)
+        algo.write_stats = lambda *a: observer.after_print_stats(a[10], a[1], a[0])
+        algo.train()
+        assert updates == [1] and resets == ["init", "reset"] and len(saves) == 1
+        final_path = Path(observer.curr_policy_dir) / "final.pth"
+        assert torch.load(final_path, weights_only=False)["frame"] == 100
+        final_bytes = final_path.read_bytes()
+        # Restoring a completed publication and entering the real public train seam
+        # must not reach native init_tensors, env_reset, update_epoch or train_epoch.
+        algo.restore(final_path)
+        algo.train()
+        assert updates == [1] and resets == ["init", "reset"] and len(saves) == 1
+        assert final_path.read_bytes() == final_bytes
+        assert runtime.resume_metadata(final_path)["terminal"]
+
+
 def test_population_forwarding_and_companion_resume_in_launcher(tmp_path):
     import os
     import subprocess

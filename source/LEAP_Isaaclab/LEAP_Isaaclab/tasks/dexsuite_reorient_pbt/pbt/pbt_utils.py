@@ -88,7 +88,7 @@ def save_pbt_checkpoint(workspace_dir, curr_policy_score, curr_iter, algo, param
 
     root = Path(workspace_dir)
     root.mkdir(parents=True, exist_ok=True)
-    checkpoint = root / f"{curr_iter:012d}.pth"
+    checkpoint = root / ("final.pth" if metadata.get("terminal") else f"{curr_iter:012d}.pth")
     companion = checkpoint.with_suffix(".yaml")
     temporary = checkpoint.with_suffix(".pth.tmp")
     torch.save(algo.get_full_state_weights(), temporary)
@@ -142,6 +142,8 @@ def cleanup(checkpoints, policy_dir, keep_back=20, max_yaml=50):
 
 
 def stage_restart(policy_dir, donor, recipient, params):
+    started = time.time()
+    tick = time.monotonic()
     root = Path(policy_dir) / "restart"
     root.mkdir(exist_ok=True)
     checkpoint = root / "checkpoint.pth"
@@ -159,6 +161,12 @@ def stage_restart(policy_dir, donor, recipient, params):
         "last_exploit_frame": recipient["frame"],
         "donor_policy_idx": donor["policy_idx"],
         "donor_frame": donor["frame"],
+        "donor_lineage": donor.get("lineage", f"member-{donor['policy_idx']}"),
+        "recipient_previous_lineage": recipient.get("lineage", f"member-{recipient['policy_idx']}"),
+        "lineage": f"member-{recipient['policy_idx']}@{recipient['frame']}",
+        "selection_evidence": {},
+        "replacement_started_at": started,
+        "checkpoint_copy_seconds": time.monotonic() - tick,
         "pbt_checkpoint": str(metadata.resolve()),
     }
     # Never inherit a donor stream, even when the recipient is a legacy record.

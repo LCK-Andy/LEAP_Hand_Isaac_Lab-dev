@@ -27,6 +27,7 @@ class GoalWindow:
             return
         if self.started is None:
             self.started = time.time() if now is None else now
+            self.start_frame = frame
         self.n += n
         self.total += total
         self.squares += squares
@@ -48,40 +49,108 @@ class GoalWindow:
                 "variance": variance,
                 "progress": 0.0,
                 "created_at": self.started,
+                "start_frame": self.start_frame,
                 "end_frame": self.end_frame,
             }
         }
 
 
-def select_goal_donor(records, own, cfg, now=None):
-    """Count standard error, wall-clock freshness, and sample-own age for async peers.
+def select_goal_donor(records, own, cfg, now=None, *, evidence=None, diagnostics=None):
+    """Select on fresh count windows; SE margins are heuristics, NOT significance tests.
 
-    Deliberately do not reject a faster/slower peer based on total lifetime frames.
-    Each score must instead be fresh relative to its own checkpoint publication.
+    Lifetime frame gaps never disqualify asynchronous peers. Two-window evidence
+    requires new nonoverlapping windows on BOTH sides, on the same branches.
+    ``evidence`` is recipient-owned mutable state persisted with its publication.
     """
     now = time.time() if now is None else now
+    evidence = {} if evidence is None else evidence
+    diagnostics = [] if diagnostics is None else diagnostics
     ours = own.get("evaluations", {}).get("official_allegro")
-    if not ours:
+
+    def invalid(record):
+        if not record or record.get("schema_version") != 2:
+            return "missing_record"
+        stats = record.get("evaluations", {}).get("official_allegro")
+        if not stats:
+            return "missing_window"
+        if any(not 0 <= now - r["created_at"] <= cfg.max_score_age_seconds for r in (record, stats)):
+            return "stale"
+        if stats["completed_episodes"] < cfg.min_completed_episodes:
+            return "sample_count"
+        if abs(record["frame"] - stats["end_frame"]) > cfg.max_frame_lag:
+            return "sample_age"
+        if not all(math.isfinite(stats[k]) and stats[k] >= 0 for k in ("goals_per_episode", "variance")):
+            return "invalid_score"
         return None
+
+    # Rank only comparable fresh windows. Maturity affects donor eligibility, not
+    # population ranking: a strong immature peer must not make a mid-rank recipient weakest.
+    peers = {p: r for p, r in records.items() if p != cfg.policy_idx and invalid(r) is None}
+    own_reason = invalid(own)
+    ranked = {p: r["evaluations"]["official_allegro"]["goals_per_episode"] for p, r in peers.items()}
+    if not own_reason:
+        ranked[cfg.policy_idx] = ours["goals_per_episode"]
+    role_ok = True
+    if getattr(cfg, "recipient_role", "any") == "weakest" and not own_reason:
+        role_ok = len(ranked) > 1 and ours["goals_per_episode"] == min(ranked.values()) < max(ranked.values())
     candidates = []
     for policy, record in records.items():
-        if policy == cfg.policy_idx or not record or record.get("schema_version") != 2:
+        if policy == cfg.policy_idx:
             continue
-        theirs = record.get("evaluations", {}).get("official_allegro")
-        if not theirs:
-            continue
-        if any(not 0 <= now - r["created_at"] <= cfg.max_score_age_seconds for r in (own, record)):
-            continue
-        if any(not 0 <= now - g["created_at"] <= cfg.max_score_age_seconds for g in (ours, theirs)):
-            continue
-        if min(ours["completed_episodes"], theirs["completed_episodes"]) < cfg.min_completed_episodes:
-            continue
-        if any(abs(r["frame"] - g["end_frame"]) > cfg.max_frame_lag for r, g in ((own, ours), (record, theirs))):
-            continue
-        se = math.sqrt(sum(g["variance"] / g["completed_episodes"] for g in (ours, theirs)))
-        if theirs["goals_per_episode"] - ours["goals_per_episode"] > max(cfg.threshold_abs, cfg.threshold_std * se):
-            candidates.append((theirs["goals_per_episode"], policy))
-    return max(candidates)[1] if candidates else None
+        theirs = (record or {}).get("evaluations", {}).get("official_allegro")
+        detail = {"donor": policy, "reason": own_reason or invalid(record), "accepted": False}
+        if ours and theirs:
+            detail.update(
+                recipient_count=ours["completed_episodes"],
+                donor_count=theirs["completed_episodes"],
+                score_gap=theirs["goals_per_episode"] - ours["goals_per_episode"],
+            )
+            if min(ours["completed_episodes"], theirs["completed_episodes"]) > 0:
+                se = math.sqrt(max(0, sum(g["variance"] / g["completed_episodes"] for g in (ours, theirs))))
+                detail.update(combined_se=se, margin=max(cfg.threshold_abs, cfg.threshold_std * se))
+        key = str(policy)
+        if not detail["reason"]:
+            maturity = getattr(cfg, "donor_maturity_rollouts", 0)
+            rollout = record.get("rollout_frames", 0)
+            age = record["frame"] - record.get("last_exploit_frame", 0)
+            detail["donor_branch_frames"] = age
+            if maturity and (rollout <= 0 or age < maturity * rollout or record["frame"] < cfg.warmup_steps):
+                detail["reason"] = "donor_immature"
+            elif not role_ok:
+                detail["reason"] = "recipient_not_weakest"
+            elif detail["score_gap"] <= detail["margin"]:
+                detail["reason"] = "margin"
+            elif getattr(cfg, "evidence_windows", 1) == 2:
+                previous = evidence.get(key)
+                token = {
+                    "recipient_end": ours["end_frame"],
+                    "donor_end": theirs["end_frame"],
+                    "recipient_branch": own.get("last_exploit_frame", 0),
+                    "donor_branch": record.get("last_exploit_frame", 0),
+                    "created_at": min(r["created_at"] for r in (own, record, ours, theirs)),
+                }
+                fresh = previous and 0 <= now - previous["created_at"] <= cfg.max_score_age_seconds
+                same = fresh and all(previous[k] == token[k] for k in ("recipient_branch", "donor_branch"))
+                nonoverlap = same and (
+                    ours.get("start_frame", -1) > previous["recipient_end"]
+                    and theirs.get("start_frame", -1) > previous["donor_end"]
+                )
+                if not nonoverlap:
+                    detail["reason"] = "awaiting_fresh_evidence"
+                    # Never advance evidence on a reused donor window.
+                    if not same:
+                        evidence[key] = token
+        if detail["reason"] not in (None, "awaiting_fresh_evidence"):
+            evidence.pop(key, None)
+        if detail["reason"] is None:
+            candidates.append((theirs["goals_per_episode"], policy, detail))
+        diagnostics.append(detail)
+    selected = max(candidates, key=lambda item: item[:2])[1] if candidates else None
+    for _, policy, detail in candidates:
+        detail.update(
+            accepted=policy == selected, reason="accepted" if policy == selected else "lower_qualifying_donor"
+        )
+    return selected
 
 
 def attach_measurement(env):
