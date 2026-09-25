@@ -2,10 +2,48 @@
 
 ## Environment & setup
 
-- **Isaac Sim 4.5.0 + Isaac Lab 2.1.0**, Python **3.10**, Ubuntu 22.04.
+- Current local EA validation (2026-09-25): **Isaac Lab 3.0.0rc1 + Isaac Sim 6.1**, Python **3.12**, torch **2.11/cu128**, Warp **1.16**, Newton **1.5.2**, RSL-RL **5.4.1**, NumPy **2.3.1**, `/home/andy/env_isaaclab`. Legacy 2.1/Sim 4.5 instructions below are historical, not the validated environment.
+- EA migration scope: LEAP direct repose/contact PhysX smoke, tiny contact/Dexsuite/Allegro RL-Games training and checkpoint checks. Other tasks/backends are not blanket-certified. Validation details and provenance follow below.
+- `LEAP_Isaaclab.compat` preserves the 3.0.0b2.post1 task definitions because EA's relocated native tasks also changed MDP semantics. Do not replace these with new EA bases without a deliberate policy/MDP migration. No installed-package patches or global namespace aliases are used.
+- EA spawn expressions must use segment-safe `env_[^/]+`, not `env_.*`: the latter can spawn objects under every robot descendant. Direct LEAP cloning uses the explicit EA clone-plan API. EA no longer adds `--headless` to argparse; scoped RL-Games entrypoints retain it explicitly.
+- Tactile force correction: direct LEAP uses the object-filtered force matrix, not `net_forces_w` (which includes self/ground contacts). Historical checkpoints may see different tactile observations/rewards; missing filtered data is an error, not a silent zero.
 - The repo root is NOT the Python package root. The package lives at `source/LEAP_Isaaclab/`.
 - Install with: `python -m pip install -e source/LEAP_Isaaclab`
 - All Isaac Lab / Isaac Sim / torch / numpy deps must be pre-installed in the conda environment; `install_requires` lists only `psutil`.
+
+## EA migration validation and provenance (2026-09-25)
+
+- Preserved upstream source: `isaaclab-3.0.0b2.post1-py3-none-any.whl` from
+  `/home/andy/isaaclab-upgrade-backup-20260925/`; read as an archive only, never
+  executed the relocated backup environment. Original BSD-3-Clause headers remain.
+  `compat/inhand_direct` comes from `isaaclab_tasks/direct/inhand_manipulation`,
+  `compat/inhand` from `manager_based/manipulation/inhand`, `compat/dexsuite` from
+  `manager_based/manipulation/dexsuite`, and `compat/allegro` from `direct/allegro_hand`.
+  Registration-only initializers were replaced with inert package initializers;
+  the original Allegro id is registered locally only when absent. EA native ids remain intact.
+- Local snapshot adaptations: EA backend import `isaaclab_ov`, segment-safe spawn
+  paths, explicit cloning, `cloner.query.iter_sources`, and Dexsuite's missing
+  `compute_final_obs=False` (EA checks it on terminal transitions). The reward,
+  reset, observation ordering, curriculum and PBT algorithms remain legacy.
+- Passed local PhysX checks: direct repose (4 envs, 136-d obs, 60 steps), direct
+  contact (4 envs, 184-d obs, cube half extent 0.03 m, 60 steps plus actual
+  four-pulp cube contact and native three-step hold/resampling). Object-filtered
+  measured force maxima were approximately 9.5/7.6/15.8/21.4 N. The smoke uses a
+  seeded opposing-thumb fixture; all-ones curl previously counted self-contact.
+- Tiny training: contact PBT two epochs/128 frames plus full checkpoint resume
+  through epoch 3/192 frames; Dexsuite PBT two epochs/128 frames; legacy Allegro
+  two PPO epochs plus real deterministic checkpoint evaluation (one completed
+  episode). Dexsuite fixed checkpoint evaluation also completed. These are
+  execution/restore checks, not learning-quality or population-exploitation evidence.
+- Simulator-free regressions include installed native-import layout, segment-safe
+  spawning and filtered tactile force selection. Historical checkpoints trained
+  with unfiltered net forces are loadable but **not behavior-identical** after the
+  documented tactile correction. Missing enabled-sensor partner data raises.
+- Not validated here: Newton/ovphysx, camera/point-cloud variants, objects variants,
+  other robots, hardware, GUI playback, or large populations. Several unrelated
+  direct tasks still use removed `clone_environments`; migrate them separately
+  before claiming EA support. Kit-less launcher imports now point to
+  `isaaclab.app.sim_launcher`, but their end-to-end behavior was not tested.
 
 ## Commands
 
