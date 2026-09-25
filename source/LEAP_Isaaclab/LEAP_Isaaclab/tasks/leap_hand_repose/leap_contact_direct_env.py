@@ -52,7 +52,7 @@ import torch
 import isaaclab.sim as sim_utils
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils.math import quat_apply, sample_uniform
-from isaaclab_tasks.direct.inhand_manipulation.inhand_manipulation_env import randomize_rotation
+from LEAP_Isaaclab.compat.inhand_direct.inhand_manipulation_env import randomize_rotation
 
 from .leap_contact_direct_env_cfg import LeapContactDirectEnvCfg
 from .leap_direct_env import LeapHandDirectEnv
@@ -173,7 +173,7 @@ class LeapContactDirectEnv(LeapHandDirectEnv):
             return
         if not getattr(self.cfg, "fingertip_contact_sensors", True):
             return
-        from isaaclab_ovphysx.sensors.contact_sensor import ContactSensor, ContactSensorCfg
+        from isaaclab_ov.sensors.contact_sensor import ContactSensor, ContactSensorCfg
 
         for body_name in self.cfg.fingertip_body_names:
             sensor = ContactSensor(
@@ -300,7 +300,7 @@ class LeapContactDirectEnv(LeapHandDirectEnv):
         cost = torch.gather(dist_mat, 1, perm_index.expand(self.num_envs, 24, 4)).sum(-1)  # (N, 24)
         best = cost.argmin(-1)
         matched_tip = self._contact_perms[best]  # (N, 4) tip index per point
-        self.matched_dist = dist_mat.gather(1, matched_tip.unsqueeze(-1)).squeeze(-1)  # (N, 4)
+        self.matched_dist = dist_mat.gather(1, matched_tip.unsqueeze(1)).squeeze(1)  # (N, 4)
         matched_force = force_mag.gather(1, matched_tip)
 
         # touch test: distance gate AND cube-filtered force on the matched pulp.
@@ -312,12 +312,6 @@ class LeapContactDirectEnv(LeapHandDirectEnv):
             self.touched = (dist_ok & (matched_force > self.cfg.touch_force)).float()
         else:
             self.touched = dist_ok.float()
-        all_touched = self.touched.sum(-1) == self.contact_points_local.shape[1]
-        # native hold-to-confirm: accumulate only while all points are touched
-        self.hold_timer = torch.where(
-            all_touched, self.hold_timer + self.step_dt, torch.zeros_like(self.hold_timer)
-        )
-
         self._update_contact_point_markers()
 
     def _update_contact_point_markers(self) -> None:
@@ -341,6 +335,11 @@ class LeapContactDirectEnv(LeapHandDirectEnv):
         return observations
 
     def _get_rewards(self) -> torch.Tensor:
+        # Advance exactly once per control step, never during reset-time geometry refreshes.
+        all_touched = self.touched.sum(-1) == self.contact_points_local.shape[1]
+        self.hold_timer = torch.where(
+            all_touched, self.hold_timer + self.step_dt, torch.zeros_like(self.hold_timer)
+        )
         (
             total_reward,
             self.reset_goal_buf,
@@ -383,6 +382,9 @@ class LeapContactDirectEnv(LeapHandDirectEnv):
         goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(goal_env_ids) > 0:
             self._reset_target_pose(goal_env_ids)
+            # The observation returned on this step must describe the NEW goal.
+            # Geometry refresh is side-effect-free with respect to hold time.
+            self._compute_intermediate_values()
 
         return total_reward
 

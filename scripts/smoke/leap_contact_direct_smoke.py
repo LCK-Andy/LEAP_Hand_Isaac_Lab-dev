@@ -14,9 +14,9 @@ Checks, headless, with 4 envs:
   4. Stepping with zero actions keeps rewards finite and the intermediate
      buffers (matched_dist / touched / hold_timer) sane.
   5. Success path: after curling the fingers onto the cube (pulp forces live),
-     the points are colocated with the pulp positions and the hold target is
-     set near zero -- the hold must confirm within a step, score, and
-     resample the points.
+     the points are colocated with the pulp positions in a frozen geometry
+     snapshot. The real 0.1 s timer must wait three reward steps, then score
+     and resample the points without bypassing the measured-force gate.
 
 Run:
   ~/env_isaaclab/bin/python scripts/smoke/leap_contact_direct_smoke.py
@@ -50,8 +50,12 @@ import LEAP_Isaaclab.tasks  # noqa: F401  (registers Isaac-Contact-Cube-LEAP-Dir
 
 def main():
     env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs)
+    env_cfg.seed = 42
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode=None)
     env_cfg = env.unwrapped.cfg
+    from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.contact import attach_measurement
+
+    attach_measurement(env.unwrapped)
 
     # [1] scene check: LEAP articulation with 16 joints, 4 pulps with sensors
     hand = env.unwrapped.hand
@@ -103,13 +107,22 @@ def main():
     print(f"[4] 60 zero-action steps OK; matched_dist max {uw.matched_dist.max():.3f} m, "
           f"touched/step max {uw.touched.sum(-1).max():.0f}, successes {uw.successes.sum():.0f}")
 
-    # [5] success path: curl onto the cube, colocate the points with the pulps,
-    # near-zero hold target -> confirm, score, resample
+    # [5] success path: curl onto the cube, colocate points with pressing pulps,
+    # and exercise the real three-step hold on a controlled geometry snapshot.
+    env.reset(seed=42)
     curl = torch.ones(args_cli.num_envs, env.action_space.shape[1], device=uw.device)
+    # All-ones thumb targets press the hand, not necessarily the cube. This
+    # measured fixture opposes the thumb; stop at an actual four-partner contact.
+    thumb_targets = {"a_12": 0.2259197, "a_13": 0.9754373, "a_14": 0.6517336, "a_15": 0.4591985}
+    for joint_index, name in enumerate(uw.hand.joint_names):
+        if name in thumb_targets:
+            curl[:, joint_index] = thumb_targets[name]
     for _ in range(90):
         env.step(curl)
-    forces = uw.fingertip_contact_forces
-    force_mag = torch.linalg.norm(forces, dim=-1)
+        forces = uw.fingertip_contact_forces
+        force_mag = torch.linalg.norm(forces, dim=-1)
+        if (force_mag > env_cfg.touch_force).all(-1).any():
+            break
     print(f"    after curling: max pulp force per tip {force_mag.max(dim=0).values.tolist()} N "
           f"(threshold {env_cfg.touch_force} N)")
 
@@ -119,12 +132,24 @@ def main():
         quat = uw.object_rot.unsqueeze(1).expand(-1, 4, -1).reshape(-1, 4)
         return quat_apply_inverse(quat, tips_rel).reshape(uw.num_envs, 4, 3)
 
-    points_before = uw.contact_points_local.clone()
+    assert forces.shape == (args_cli.num_envs, 4, 3)
+    assert (force_mag.max(dim=0).values > env_cfg.touch_force).all(), "one or more pulp sensors are dead"
+    pressing = (force_mag > env_cfg.touch_force).all(-1)
+    assert pressing.any(), "curl probe never established a four-pulp contact snapshot"
+    # Controlled geometry snapshot: exercise the REAL timer and measured forces
+    # without integrating physics between reward calls. Production point sampling
+    # and hold ranges are untouched. A target below reward epsilon would falsely
+    # confirm even with zero timer, so use the real 0.1 s native hold duration.
     uw.contact_points_local[:] = pulp_colocated_points()
-    uw.hold_target[:] = 1e-9
+    uw.hold_target[:] = 3 * uw.step_dt
+    uw.hold_timer.zero_()
+    uw._compute_intermediate_values()
+    assert (uw.touched[pressing].sum(-1) == 4).all()
     successes_before = uw.successes.sum().item()
-    for _ in range(3):
-        env.step(zero_action)
+    for _ in range(2):
+        uw._get_rewards()
+        assert uw.successes.sum().item() == successes_before, "native hold confirmed early"
+    uw._get_rewards()
     successes_after = uw.successes.sum().item()
     resampled = not torch.allclose(uw.contact_points_local, pulp_colocated_points(), atol=1e-6)
     print(f"[5] colocated-points confirm: successes {successes_before:.0f} -> {successes_after:.0f}, "
