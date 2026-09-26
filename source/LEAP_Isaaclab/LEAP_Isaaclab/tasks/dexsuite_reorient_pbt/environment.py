@@ -8,7 +8,6 @@ BEFORE resets and command resampling. No reward value or weight is changed here.
 import copy
 import json
 import math
-
 import torch
 
 from isaaclab.envs import ManagerBasedRLEnv
@@ -74,13 +73,15 @@ class DexsuiteReorientPbtEnv(ManagerBasedRLEnv):
             self._dexpbt_in_step = False
 
     def _reset_idx(self, env_ids):
+        # Native step supplies int32 indices; the reset path repeatedly indexes Torch
+        # buffers. Normalize once instead of re-casting at each advanced-index operation.
+        env_ids = torch.as_tensor(env_ids, dtype=torch.long, device=self.device)
         if hasattr(self, "_dexpbt_metrics"):
             if self._dexpbt_in_step:
-                ids = torch.as_tensor(env_ids, dtype=torch.long, device=self.device)
                 report = self._dexpbt_metrics.complete(
-                    ids[self._dexpbt_episode_eligible[ids]], self.evaluation_protocol
+                    env_ids[self._dexpbt_episode_eligible[env_ids]], self.evaluation_protocol
                 )
-                self._dexpbt_metrics.discard(ids)
+                self._dexpbt_metrics.discard(env_ids)
                 report["curriculum_tolerance"] = self.reward_manager.get_term_cfg("success").params["pos_std"]
                 self.extras["dexpbt"] = report
             else:
