@@ -36,6 +36,9 @@ parser.add_argument("--distributed", action="store_true")
 parser.add_argument("--checkpoint", type=str, default=None)
 parser.add_argument("--warm-start", type=str, default=None, help="Stage A -> B policy-only initialization; NOT resume")
 parser.add_argument(
+    "--policy-prior", type=str, default=None, help="Same-task Dexsuite model/normalizers only; NOT resume"
+)
+parser.add_argument(
     "--legacy-best-checkpoint",
     type=str,
     default=None,
@@ -53,6 +56,7 @@ if "--headless" not in parser._option_string_actions:
 args_cli, hydra_args = parser.parse_known_args(remaining)
 try:
     runtime.validate_warm_start_options(args_cli)
+    runtime.validate_policy_prior_options(args_cli, params_cli_overrides)
 except ValueError as error:
     parser.error(str(error))
 if args_cli.distributed or int(os.environ.get("WORLD_SIZE", 1)) != 1:
@@ -92,6 +96,13 @@ from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.best_checkpoint import BestCh
 from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.exploration import ExplorationObserver
 from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.pbt import initialize_population
 from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.pbt_cfg import PbtCfg
+from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.policy_prior import (
+    ENV_CLASS,
+    PolicyPriorObserver,
+    validate_architecture,
+    validate_live_layout,
+    validate_source,
+)
 from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.warm_start import WarmStartObserver
 
 
@@ -104,6 +115,27 @@ class StatefulRlgEnv(RlGamesGpuEnv):
     def set_env_state(self, state):
         if state is not None:
             self.env.unwrapped.set_env_state(state)
+
+
+def prepare_policy_prior(agent_cfg, env_cfg, history_dir, experiment_dir):
+    """Validate the isolated same-task initialization before creating any environment."""
+    if not args_cli.policy_prior:
+        return None, None
+    validate_architecture(agent_cfg, recipient=True)
+    if type(env_cfg).__name__ != ENV_CLASS:
+        raise ValueError("--policy-prior requires the native Dexsuite PBT training environment")
+    path = str(Path(args_cli.policy_prior).expanduser().absolute())
+    runtime.validate_policy_prior_destination(history_dir.parent, experiment_dir)
+    manifest = env_cfg.to_dict()
+    validate_source(path, agent_cfg, manifest)
+    return path, manifest
+
+
+def append_policy_prior(observers, path, agent_cfg, manifest, exploration, env):
+    """Install only a validated same-task prior, after exploration and before histories."""
+    if path:
+        validate_live_layout(env.unwrapped)
+        observers.append(PolicyPriorObserver(path, agent_cfg, manifest, exploration))
 
 
 @hydra_task_config(args_cli.task, "rl_games_cfg_entry_point")
@@ -171,6 +203,7 @@ def main(env_cfg, agent_cfg):
     history_dir = log_root / cfg.workspace / f"{cfg.policy_idx:03d}" / "best"
     if warm_start_path:
         runtime.validate_warm_start_destination(history_dir, log_root / log_dir)
+    policy_prior_path, prior_env_manifest = prepare_policy_prior(agent_cfg, env_cfg, history_dir, log_root / log_dir)
     print(f"[INFO] Logging member {cfg.policy_idx}/{cfg.num_policies} to {log_root / log_dir}")
 
     rl_device = config["device"]
@@ -223,6 +256,7 @@ def main(env_cfg, agent_cfg):
             observers.append(
                 WarmStartObserver(warm_start_path, min_std=exploration.min_std, max_std=exploration.max_std)
             )
+        append_policy_prior(observers, policy_prior_path, agent_cfg, prior_env_manifest, exploration, env)
         observers.append(BestCheckpointObserver(metadata, history_dir, args_cli.legacy_best_checkpoint))
         # Restore semantics remain active for disabled-PBT diagnostic ablations.
         observers.append(PbtAlgoObserver(agent_cfg, args_cli))

@@ -123,6 +123,28 @@ def validate_warm_start_destination(history_dir, experiment_dir):
             raise ValueError(f"--warm-start requires fresh history and experiment directories: {path}")
 
 
+def validate_policy_prior_options(args, params_overrides=None):
+    """Keep same-task policy priors unambiguously separate from every resume path."""
+    if not getattr(args, "policy_prior", None):
+        return
+    if args.task != "Isaac-Dexsuite-Kuka-Allegro-Reorient-PBT-v0":
+        raise ValueError("--policy-prior requires the Dexsuite Reorient PBT training task")
+    if any(
+        getattr(args, name, None) is not None
+        for name in ("checkpoint", "pbt_resume", "warm_start", "legacy_best_checkpoint", "sigma")
+    ):
+        raise ValueError("--policy-prior cannot be combined with checkpoint/resume/warm-start/legacy-best/sigma")
+    if any(canonical(key) in {"params.load_checkpoint", "params.load_path"} for key in (params_overrides or {})):
+        raise ValueError("--policy-prior cannot be combined with params.load_checkpoint/load_path overrides")
+
+
+def validate_policy_prior_destination(member_dir, experiment_dir):
+    """A new timestamp alone must not inherit member scores, bests, lineage or RNG."""
+    for path in (Path(member_dir), Path(experiment_dir)):
+        if path.is_symlink() or (path.exists() and (not path.is_dir() or any(path.iterdir()))):
+            raise ValueError(f"--policy-prior requires fresh member and experiment directories: {path}")
+
+
 def restart_command(original_argv, executable, checkpoint, metadata, params):
     """Retain every original launch choice except superseded restore/mutation tokens."""
     replaced = {canonical(key) for key in params}
@@ -133,7 +155,7 @@ def restart_command(original_argv, executable, checkpoint, metadata, params):
             skip = False
             continue
         key = arg.split("=", 1)[0]
-        if key in {"--checkpoint", "--pbt-resume", "--warm-start"}:
+        if key in {"--checkpoint", "--pbt-resume", "--warm-start", "--policy-prior"}:
             skip = "=" not in arg
             continue
         if canonical(key) in replaced:
