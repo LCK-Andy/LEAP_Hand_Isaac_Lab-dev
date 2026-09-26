@@ -67,14 +67,19 @@ class PbtAlgoObserver(AlgoObserver):
         from .grasp_motion import GraspMotionWindow
 
         self.count_objective = self.cfg.objective in {"allegro_goals", "contact_goals", "grasp_hold", "grasp_motion"}
-        self.window = {
-            "allegro_goals": GoalWindow,
-            "contact_goals": ContactWindow,
-            "grasp_hold": GraspHoldWindow,
-            "grasp_motion": GraspMotionWindow,
-            "dexpbt": pbt_utils.EpisodeWindow,
-        }[self.cfg.objective]()
+        self.window = (
+            {
+                "allegro_goals": GoalWindow,
+                "contact_goals": ContactWindow,
+                "grasp_hold": GraspHoldWindow,
+                "grasp_motion": GraspMotionWindow,
+            }[self.cfg.objective]()
+            if self.count_objective
+            else pbt_utils.EpisodeWindow(self.cfg)
+        )
         self.pbt_it = None
+        self._rollout_start_frame = None
+        self._rollout_completed_frames = 0
         self.last_exploit_frame = (self.resume or {}).get("last_exploit_frame", 0)
         self.evidence = dict((self.resume or {}).get("selection_evidence", {}))
         self.lineage = (self.resume or {}).get("lineage", f"member-{self.cfg.policy_idx}")
@@ -90,6 +95,15 @@ class PbtAlgoObserver(AlgoObserver):
         if self.cfg.enabled:
             os.makedirs(self.curr_policy_dir, exist_ok=True)
         install_restore(algo, self.pbt_params, self.resume)
+        restore_with_params = algo.restore
+
+        def restore_without_evidence(checkpoint, *args, **kwargs):
+            self.window.consume()
+            self._rollout_start_frame = None
+            self._rollout_completed_frames = 0
+            return restore_with_params(checkpoint, *args, **kwargs)
+
+        algo.restore = restore_without_evidence
         if hasattr(algo, "train"):
             install_train_guard(algo, self.after_print_stats)
         if self.plain_checkpoint:
@@ -111,15 +125,55 @@ class PbtAlgoObserver(AlgoObserver):
 
     def process_infos(self, infos, done_indices):
         if self.cfg.enabled:
-            self.window.add(infos, self.algo.frame)
+            frame = int(self.algo.frame)
+            if not self.count_objective:
+                # RL-Games leaves frame at rollout START until PPO finishes. This
+                # callback runs after each vector step, even when no episodes end.
+                if self._rollout_start_frame != frame:
+                    self._rollout_start_frame = frame
+                    self._rollout_completed_frames = 0
+                self._rollout_completed_frames += int(getattr(self.algo, "num_actors", 0))
+                frame += self._rollout_completed_frames
+            self.window.add(infos, frame)
 
     def after_steps(self):
         # rl-games calls after_steps BEFORE PPO updates and before incrementing frame.
         # Publish in after_print_stats instead so weights/optimizer and frame agree.
         self.segment_rollouts += 1
+        self._rollout_start_frame = None
+        self._rollout_completed_frames = 0
+
+    def _report_selection(self, own, diagnostics):
+        current = int(self.algo.frame)
+        if own is not None:
+            own["selection_diagnostics"] = diagnostics
+            pbt_utils.atomic_yaml(own["pbt_checkpoint"], own)
+        print(
+            "[pbt-selection] " + json.dumps({"member": self.cfg.policy_idx, "frame": current, **diagnostics}),
+            flush=True,
+        )
+        writer = self.algo.writer
+        if hasattr(writer, "add_scalar"):
+            reason = diagnostics["reason"]
+            previous = getattr(self, "_selection_reason", None)
+            if previous and previous != reason:
+                writer.add_scalar(f"pbt/selection_reason/{previous}", 0, current)
+            writer.add_scalar(f"pbt/selection_reason/{reason}", 1, current)
+            self._selection_reason = reason
+            for name in ("donor_records", "eligible_donors", "comparable_pairs"):
+                writer.add_scalar(f"pbt/{name}", diagnostics.get(name, 0), current)
+            if own is not None:
+                writer.add_scalar("pbt/objective_valid", int(own["objective_valid"]), current)
+                writer.add_scalar("pbt/fresh_episodes", own["evaluation_diagnostics"]["fresh_episodes"], current)
+                if own["objective_valid"]:
+                    writer.add_scalar("pbt/objective", own["true_objective"], current)
 
     def after_print_stats(self, frame, epoch_num, total_time):
         if not self.cfg.enabled:
+            iteration = int(self.algo.frame) // self.cfg.interval_steps
+            if iteration != getattr(self, "_disabled_iteration", None):
+                self._report_selection(None, {"reason": "pbt_disabled", "donor": None})
+                self._disabled_iteration = iteration
             return
         current = int(self.algo.frame)
         if self.segment_rollouts:
@@ -172,6 +226,15 @@ class PbtAlgoObserver(AlgoObserver):
             self.pbt_params,
             policy_idx=self.cfg.policy_idx,
             evaluations=evaluations,
+            objective_valid=bool(evaluations),
+            evaluation_diagnostics=(
+                dict(self.window.diagnostics)
+                if not self.count_objective
+                else {
+                    "reason": "ready" if evaluations else "insufficient_fresh_episodes",
+                    "fresh_episodes": sum(g["completed_episodes"] for g in evaluations.values()),
+                }
+            ),
             last_exploit_frame=self.last_exploit_frame,
             pbt_rng_state=pbt_utils.rng_state(self.rng),
             terminal=terminal,
@@ -183,6 +246,7 @@ class PbtAlgoObserver(AlgoObserver):
         )
         pbt_utils.cleanup({}, self.curr_policy_dir, max_yaml=3 if self.count_objective else 50)
         if terminal:
+            self._report_selection(own, {"reason": "terminal", "donor": None})
             print(
                 f"[pbt] final_checkpoint frame={current} epoch={self.algo.epoch_num} path={own['checkpoint']} "
                 f"objective={self.cfg.objective} score={score if evaluations else None} "
@@ -191,9 +255,12 @@ class PbtAlgoObserver(AlgoObserver):
             )
             return
         if not evaluations:
+            self._report_selection(own, {"reason": "own_" + own["evaluation_diagnostics"]["reason"], "donor": None})
             return
-        # Consume each local window once, never select repeatedly on stale episodes.
-        self.window.consume()
+        # Count objectives retain their disjoint-window semantics. DexPBT keeps
+        # rolling evidence across publications; ready() prunes each old batch.
+        if self.count_objective:
+            self.window.consume()
         # Allegro compares fresh samples regardless of asynchronous lifetime age.
         latest = float("inf") if self.count_objective else iteration
         records = pbt_utils.load_pbt_ckpts(self.ws_dir, self.cfg.policy_idx, self.cfg.num_policies, latest)
@@ -227,9 +294,14 @@ class PbtAlgoObserver(AlgoObserver):
                 f"overload_rate={stats['overload_rate']:.6f} episodes={stats['completed_episodes']}",
                 flush=True,
             )
-        if current < self.cfg.warmup_steps or current - self.last_exploit_frame < self.cfg.adaptation_steps:
+        if current < self.cfg.warmup_steps:
+            self._report_selection(own, {"reason": "warmup", "donor": None})
+            return
+        if current - self.last_exploit_frame < self.cfg.adaptation_steps:
+            self._report_selection(own, {"reason": "adaptation", "donor": None})
             return
         if not self.cfg.selection_enabled:
+            self._report_selection(own, {"reason": "selection_disabled", "donor": None})
             return
         if self.cfg.objective == "allegro_goals":
             from .allegro import select_goal_donor
@@ -260,7 +332,9 @@ class PbtAlgoObserver(AlgoObserver):
             donor_id = select_motion_donor(records, own, self.cfg)
             print(f"[pbt] selection member={self.cfg.policy_idx} frame={current} donor={donor_id}", flush=True)
         else:
-            donor_id = pbt_utils.select_donor(records, own, self.cfg)
+            diagnostics = {}
+            donor_id = pbt_utils.select_donor(records, own, self.cfg, diagnostics=diagnostics)
+            self._report_selection(own, diagnostics)
         if donor_id is None:
             return
         donor = records[donor_id]
@@ -311,6 +385,9 @@ class PbtAlgoObserver(AlgoObserver):
             f"[pbt] Member {self.cfg.policy_idx} exploits {donor_id} at recipient frame {current}: {command}",
             flush=True,
         )
+        self.window.consume()
+        self._rollout_start_frame = None
+        self._rollout_completed_frames = 0
         os.execv(sys.executable, command)
 
 
