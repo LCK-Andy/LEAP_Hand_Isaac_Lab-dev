@@ -1,0 +1,90 @@
+# Stage B PPO through train_dexpbt_member.py; --warm-start is NOT --checkpoint.
+# The first 124 observations preserve Stage A; 24 reference features are appended.
+params:
+  seed: 42
+  env:
+    clip_observations: 100.0
+    clip_actions: 1.0
+    obs_groups: {obs: [policy], states: [policy]}
+  algo: {name: a2c_continuous}
+  model: {name: continuous_a2c_logstd}
+  network:
+    name: actor_critic
+    separate: false
+    space:
+      continuous:
+        mu_activation: None
+        sigma_activation: None
+        mu_init: {name: default}
+        sigma_init: {name: const_initializer, val: -1.8971199848858813}
+        fixed_sigma: true
+    mlp:
+      units: [256, 128, 64]
+      activation: elu
+      d2rl: false
+      initializer: {name: default}
+      regularizer: {name: None}
+  load_checkpoint: false
+  load_path: ''
+  config:
+    name: leap_grasp_motion
+    env_name: rlgpu
+    device: cuda:0
+    device_name: cuda:0
+    multi_gpu: false
+    ppo: true
+    mixed_precision: false
+    torch_compile: false
+    normalize_input: true
+    normalize_value: true
+    value_bootstrap: true
+    num_actors: -1
+    reward_shaper: {scale_value: 1.0}
+    normalize_advantage: true
+    gamma: 0.99
+    tau: 0.95
+    learning_rate: 0.0003
+    lr_schedule: adaptive
+    schedule_type: standard
+    kl_threshold: 0.016
+    score_to_win: 100000
+    max_epochs: 1000
+    save_best_after: 0
+    save_frequency: 100
+    print_stats: true
+    grad_norm: 1.0
+    entropy_coef: 0.0
+    truncate_grads: true
+    e_clip: 0.2
+    horizon_length: 16
+    minibatch_size: 4096
+    mini_epochs: 5
+    critic_coef: 4
+    clip_value: true
+    seq_length: 4
+    bounds_loss_coef: 0.0001
+    exploration: {initial_std: 0.15, min_std: 0.03, max_std: 0.3}
+    player: {deterministic: true, games_num: 100, print_stats: true}
+pbt:
+  enabled: false
+  objective: grasp_motion
+  num_policies: 4
+  interval_steps: 524288
+  warmup_steps: 5242880
+  adaptation_steps: 3145728
+  min_completed_episodes: 128
+  max_score_age_seconds: 1800
+  max_frame_lag: 2097152
+  threshold_abs: 0.01
+  threshold_std: 1.0
+  mutation_rate: 1.0
+  change_range: [1.1, 1.5]
+  initial_diversity: true
+  mutation:
+    agent.params.config.learning_rate: mutate_float
+    agent.params.config.grad_norm: mutate_float
+    agent.params.config.kl_threshold: mutate_float
+  mutation_bounds:
+    agent.params.config.learning_rate: [0.00001, 0.001]
+    agent.params.config.grad_norm: [0.5, 5.0]
+    agent.params.config.kl_threshold: [0.005, 0.03]

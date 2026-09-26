@@ -64,12 +64,14 @@ class PbtAlgoObserver(AlgoObserver):
         from .allegro import GoalWindow
         from .contact import ContactWindow
         from .grasp import GraspHoldWindow
+        from .grasp_motion import GraspMotionWindow
 
-        self.count_objective = self.cfg.objective in {"allegro_goals", "contact_goals", "grasp_hold"}
+        self.count_objective = self.cfg.objective in {"allegro_goals", "contact_goals", "grasp_hold", "grasp_motion"}
         self.window = {
             "allegro_goals": GoalWindow,
             "contact_goals": ContactWindow,
             "grasp_hold": GraspHoldWindow,
+            "grasp_motion": GraspMotionWindow,
             "dexpbt": pbt_utils.EpisodeWindow,
         }[self.cfg.objective]()
         self.pbt_it = None
@@ -217,6 +219,14 @@ class PbtAlgoObserver(AlgoObserver):
                 f"overload_rate={stats['overload_rate']:.6f} episodes={stats['completed_episodes']}",
                 flush=True,
             )
+        if self.cfg.objective == "grasp_motion":
+            stats = evaluations["grasp_motion"]
+            print(
+                f"[pbt] publication member={self.cfg.policy_idx} frame={current} "
+                f"safe_tracking={stats['success_rate']:.6f} safe_retention={stats['progress']:.6f} "
+                f"overload_rate={stats['overload_rate']:.6f} episodes={stats['completed_episodes']}",
+                flush=True,
+            )
         if current < self.cfg.warmup_steps or current - self.last_exploit_frame < self.cfg.adaptation_steps:
             return
         if not self.cfg.selection_enabled:
@@ -243,6 +253,11 @@ class PbtAlgoObserver(AlgoObserver):
             from .grasp import select_grasp_donor
 
             donor_id = select_grasp_donor(records, own, self.cfg)
+            print(f"[pbt] selection member={self.cfg.policy_idx} frame={current} donor={donor_id}", flush=True)
+        elif self.cfg.objective == "grasp_motion":
+            from .grasp_motion import select_motion_donor
+
+            donor_id = select_motion_donor(records, own, self.cfg)
             print(f"[pbt] selection member={self.cfg.policy_idx} frame={current} donor={donor_id}", flush=True)
         else:
             donor_id = pbt_utils.select_donor(records, own, self.cfg)

@@ -65,6 +65,64 @@ def resolved_seed_argv(argv, seed):
     return [*result, f"--seed={int(seed)}"]
 
 
+def validate_warm_start_options(args):
+    """Reject ambiguous Stage A policy initialization before launching the simulator."""
+    if not getattr(args, "warm_start", None):
+        return
+    if args.task != "Isaac-Grasp-Motion-Cube-LEAP-Direct-v0":
+        raise ValueError("--warm-start requires the Stage B grasp-motion training task")
+    if any(
+        getattr(args, name, None) is not None
+        for name in ("checkpoint", "pbt_resume", "legacy_best_checkpoint", "sigma")
+    ):
+        raise ValueError("--warm-start cannot be combined with checkpoint/resume/legacy-best/sigma overrides")
+
+
+def validate_warm_start_architecture(params):
+    """Pin policy/layout semantics for either donor or recipient, independent of resume history."""
+    network, config, env = params["network"], params["config"], params["env"]
+    continuous, mlp = network["space"]["continuous"], network["mlp"]
+    if (
+        params["model"]["name"] != "continuous_a2c_logstd"
+        or network["name"] != "actor_critic"
+        or network.get("separate", False)
+        or network.get("value_activation") not in (None, "None")
+        or network.get("normalization") not in (None, "None")
+        or network.get("central_value", False)
+        or network.get("joint_obs_actions")
+        or "rnn" in network
+        or "cnn" in network
+        or mlp["units"] != [256, 128, 64]
+        or mlp["activation"] != "elu"
+        or mlp.get("d2rl", False)
+        or mlp.get("normalization") not in (None, "None")
+        or continuous["mu_activation"] not in (None, "None")
+        or continuous["sigma_activation"] not in (None, "None")
+        or not continuous["fixed_sigma"]
+        or not config["normalize_input"]
+        or not config["normalize_value"]
+        or config.get("central_value_config")
+        or env.get("obs_groups") != {"obs": ["policy"], "states": ["policy"]}
+        or env.get("clip_observations") != 100.0
+        or env.get("clip_actions") != 1.0
+    ):
+        raise ValueError("--warm-start requires the unchanged Stage A policy architecture/observation layout")
+
+
+def validate_warm_start_config(params):
+    """Require a compatible, fresh recipient; donor manifests use architecture validation only."""
+    validate_warm_start_architecture(params)
+    if params.get("load_checkpoint", False) or params.get("load_path"):
+        raise ValueError("--warm-start requires a fresh recipient without load_checkpoint/load_path")
+
+
+def validate_warm_start_destination(history_dir, experiment_dir):
+    """New objective/age requires new recipient best history, not just a timestamp."""
+    for path in (Path(history_dir), Path(experiment_dir)):
+        if path.exists() and (not path.is_dir() or any(path.iterdir())):
+            raise ValueError(f"--warm-start requires fresh history and experiment directories: {path}")
+
+
 def restart_command(original_argv, executable, checkpoint, metadata, params):
     """Retain every original launch choice except superseded restore/mutation tokens."""
     replaced = {canonical(key) for key in params}
@@ -75,7 +133,7 @@ def restart_command(original_argv, executable, checkpoint, metadata, params):
             skip = False
             continue
         key = arg.split("=", 1)[0]
-        if key in {"--checkpoint", "--pbt-resume"}:
+        if key in {"--checkpoint", "--pbt-resume", "--warm-start"}:
             skip = "=" not in arg
             continue
         if canonical(key) in replaced:

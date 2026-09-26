@@ -70,6 +70,28 @@
   Do not generalize historical Newton zero-force reports: this probe initially
   had **zero imported hand colliders**, not a missing full-force reporting API.
 
+## Stage B grasp-motion tracking (2026-09-26)
+
+- New `Isaac-Grasp-Motion-Cube-LEAP-Direct-v0` / `-Direct-Play-v0` tasks in
+  `tasks/leap_hand_grasp_motion/`; see `docs/stage-b-grasp-motion.md`. Stage A
+  remains unchanged, including its running remote source snapshot.
+- Fixed-hand joint actions track a smooth commanded object pose: initial0.1deg
+  XYZ at0.2/0.3/0.4Hz, zero translation,1s settle+2s quintic ramp. No object
+  writes outside resets or external object forces. Full Stage A force/support
+  validity gates the tracking reward;148obs = exact124prefix+24 command channels.
+- Pose-difference/EMA velocities, not biased raw solver velocities, drive
+  tracking. Filter updates once per reward step; reset/recovery handling excludes
+  invalid intervals. Angular Gram diagnostics are NOT a Fisher matrix or estimator.
+- `train_dexpbt_member.py --warm-start <StageA.pth>` strictly initializes only
+  model/normalizers (124->148 zero padding), fresh optimizer/frame/best; colocated
+  Stage A agent/env YAML required. `--checkpoint` is full Stage B resume instead.
+  `grasp_motion` PBT selection ranks safe tracking, not Stage A contact occupancy.
+- Local PhysX smoke passed:4env330steps,99.7% holding but0% stationary tracking.
+  Warm-start21epoch/1344frame and resume22/1408 execution checks passed, NOT
+  acquisition. Separate scripted mechanical probe preserved~97.3% contacts but
+  achieved X-dominant motion only;1deg/1mm rejected by physical tests. Full
+  multi-axis tracking and inertial-identification accuracy remain unproven.
+
 ## Commands
 
 | Purpose | Command |

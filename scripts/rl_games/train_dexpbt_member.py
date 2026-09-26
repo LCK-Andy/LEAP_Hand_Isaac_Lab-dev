@@ -34,6 +34,7 @@ parser.add_argument("--task", type=str, required=True)
 parser.add_argument("--seed", type=int, default=None)
 parser.add_argument("--distributed", action="store_true")
 parser.add_argument("--checkpoint", type=str, default=None)
+parser.add_argument("--warm-start", type=str, default=None, help="Stage A -> B policy-only initialization; NOT resume")
 parser.add_argument(
     "--legacy-best-checkpoint",
     type=str,
@@ -50,6 +51,10 @@ AppLauncher.add_app_launcher_args(parser)
 if "--headless" not in parser._option_string_actions:
     parser.add_argument("--headless", action="store_true")
 args_cli, hydra_args = parser.parse_known_args(remaining)
+try:
+    runtime.validate_warm_start_options(args_cli)
+except ValueError as error:
+    parser.error(str(error))
 if args_cli.distributed or int(os.environ.get("WORLD_SIZE", 1)) != 1:
     parser.error("DexPBT supports one process per member; distributed PPO restarts are unsupported")
 if args_cli.pbt_resume and not args_cli.checkpoint:
@@ -87,6 +92,7 @@ from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.best_checkpoint import BestCh
 from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.exploration import ExplorationObserver
 from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.pbt import initialize_population
 from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.pbt_cfg import PbtCfg
+from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.warm_start import WarmStartObserver
 
 
 class StatefulRlgEnv(RlGamesGpuEnv):
@@ -114,6 +120,7 @@ def main(env_cfg, agent_cfg):
     if cfg.fixed_evaluation_adr_fraction is not None:
         raise ValueError("Heldout fixed evaluation must run separately, not inside the training member")
 
+    warm_start_path = str(Path(args_cli.warm_start).expanduser().resolve(strict=True)) if args_cli.warm_start else None
     resume_path = retrieve_file_path(args_cli.checkpoint) if args_cli.checkpoint else None
     metadata = runtime.resume_metadata(resume_path, args_cli.pbt_resume) if resume_path else None
     args_cli.pbt_resume_metadata = metadata
@@ -126,6 +133,12 @@ def main(env_cfg, agent_cfg):
     # Explicit command-line choices win over a companion, including generated mutations.
     runtime.apply_overrides(agent_cfg, params_cli_overrides)
     config = agent_cfg["params"]["config"]
+    if warm_start_path:
+        runtime.validate_warm_start_config(agent_cfg["params"])
+        if cfg.objective != "grasp_motion" or env_cfg.observation_space != 148 or env_cfg.action_space != 16:
+            raise ValueError("--warm-start requires the 148-observation/16-action grasp_motion contract")
+        if config["name"] != "leap_grasp_motion":
+            raise ValueError("--warm-start requires the separate leap_grasp_motion log namespace")
     if config.get("multi_gpu", False):
         raise ValueError("multi_gpu is unsupported for DexPBT")
     if args_cli.seed == -1:
@@ -155,6 +168,9 @@ def main(env_cfg, agent_cfg):
     log_dir = config.get("full_experiment_name") or datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     config["train_dir"] = str(log_root)
     config["full_experiment_name"] = log_dir
+    history_dir = log_root / cfg.workspace / f"{cfg.policy_idx:03d}" / "best"
+    if warm_start_path:
+        runtime.validate_warm_start_destination(history_dir, log_root / log_dir)
     print(f"[INFO] Logging member {cfg.policy_idx}/{cfg.num_policies} to {log_root / log_dir}")
 
     rl_device = config["device"]
@@ -181,6 +197,10 @@ def main(env_cfg, agent_cfg):
             from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.grasp import validate_grasp_environment
 
             validate_grasp_environment(args_cli.task, env.unwrapped)
+        elif cfg.objective == "grasp_motion":
+            from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.grasp_motion import validate_motion_environment
+
+            validate_motion_environment(args_cli.task, env.unwrapped)
         if isinstance(env.unwrapped, DirectMARLEnv):
             env = multi_agent_to_single_agent(env)
         try:
@@ -198,12 +218,12 @@ def main(env_cfg, agent_cfg):
         exploration = ExplorationObserver(**exploration_options)
         # Commit raw-reward bests before PBT's callback can exec. Instance restore
         # wrappers compose as PBT -> best-history -> exploration -> base restore.
-        history_dir = log_root / cfg.workspace / f"{cfg.policy_idx:03d}" / "best"
-        observers = [
-            IsaacAlgoObserver(),
-            exploration,
-            BestCheckpointObserver(metadata, history_dir, args_cli.legacy_best_checkpoint),
-        ]
+        observers = [IsaacAlgoObserver(), exploration]
+        if warm_start_path:
+            observers.append(
+                WarmStartObserver(warm_start_path, min_std=exploration.min_std, max_std=exploration.max_std)
+            )
+        observers.append(BestCheckpointObserver(metadata, history_dir, args_cli.legacy_best_checkpoint))
         # Restore semantics remain active for disabled-PBT diagnostic ablations.
         observers.append(PbtAlgoObserver(agent_cfg, args_cli))
         dump_yaml(str(log_root / log_dir / "params" / "env.yaml"), env_cfg)

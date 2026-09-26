@@ -57,7 +57,7 @@ class PbtCfg:
             raise ValueError("Evidence/role/maturity pilots currently require allegro_goals")
         if not 0 <= self.policy_idx < self.num_policies:
             raise ValueError("policy_idx must be inside the configured population")
-        if self.objective not in {"dexpbt", "allegro_goals", "contact_goals", "grasp_hold"}:
+        if self.objective not in {"dexpbt", "allegro_goals", "contact_goals", "grasp_hold", "grasp_motion"}:
             raise ValueError("PBT requires a supported completed-episode objective, never soft reward")
         if self.interval_steps <= 0 or self.min_completed_episodes <= 0:
             raise ValueError("PBT interval and episode window must be positive")
