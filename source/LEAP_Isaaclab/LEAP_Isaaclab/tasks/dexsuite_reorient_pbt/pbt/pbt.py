@@ -63,11 +63,15 @@ class PbtAlgoObserver(AlgoObserver):
             raise ValueError("Mutation keys must name supported live PPO config parameters")
         from .allegro import GoalWindow
         from .contact import ContactWindow
+        from .grasp import GraspHoldWindow
 
-        self.count_objective = self.cfg.objective in {"allegro_goals", "contact_goals"}
-        self.window = {"allegro_goals": GoalWindow, "contact_goals": ContactWindow, "dexpbt": pbt_utils.EpisodeWindow}[
-            self.cfg.objective
-        ]()
+        self.count_objective = self.cfg.objective in {"allegro_goals", "contact_goals", "grasp_hold"}
+        self.window = {
+            "allegro_goals": GoalWindow,
+            "contact_goals": ContactWindow,
+            "grasp_hold": GraspHoldWindow,
+            "dexpbt": pbt_utils.EpisodeWindow,
+        }[self.cfg.objective]()
         self.pbt_it = None
         self.last_exploit_frame = (self.resume or {}).get("last_exploit_frame", 0)
         self.evidence = dict((self.resume or {}).get("selection_evidence", {}))
@@ -205,6 +209,14 @@ class PbtAlgoObserver(AlgoObserver):
                 f"touch_occupancy={stats['progress']:.6f} episodes={stats['completed_episodes']}",
                 flush=True,
             )
+        if self.cfg.objective == "grasp_hold":
+            stats = evaluations["grasp_hold"]
+            print(
+                f"[pbt] publication member={self.cfg.policy_idx} frame={current} "
+                f"safe_retention={stats['success_rate']:.6f} safe_valid4={stats['progress']:.6f} "
+                f"overload_rate={stats['overload_rate']:.6f} episodes={stats['completed_episodes']}",
+                flush=True,
+            )
         if current < self.cfg.warmup_steps or current - self.last_exploit_frame < self.cfg.adaptation_steps:
             return
         if not self.cfg.selection_enabled:
@@ -226,6 +238,11 @@ class PbtAlgoObserver(AlgoObserver):
             from .contact import select_contact_donor
 
             donor_id = select_contact_donor(records, own, self.cfg)
+            print(f"[pbt] selection member={self.cfg.policy_idx} frame={current} donor={donor_id}", flush=True)
+        elif self.cfg.objective == "grasp_hold":
+            from .grasp import select_grasp_donor
+
+            donor_id = select_grasp_donor(records, own, self.cfg)
             print(f"[pbt] selection member={self.cfg.policy_idx} frame={current} donor={donor_id}", flush=True)
         else:
             donor_id = pbt_utils.select_donor(records, own, self.cfg)

@@ -177,6 +177,10 @@ def main(env_cfg, agent_cfg):
         attach_measurement(env.unwrapped)
     exploration = None
     try:
+        if cfg.objective == "grasp_hold":
+            from LEAP_Isaaclab.tasks.dexsuite_reorient_pbt.pbt.grasp import validate_grasp_environment
+
+            validate_grasp_environment(args_cli.task, env.unwrapped)
         if isinstance(env.unwrapped, DirectMARLEnv):
             env = multi_agent_to_single_agent(env)
         try:

@@ -45,6 +45,31 @@
   before claiming EA support. Kit-less launcher imports now point to
   `isaaclab.app.sim_launcher`, but their end-to-end behavior was not tested.
 
+## Stage A persistent grasp (2026-09-25)
+
+- New `Isaac-Grasp-Cube-LEAP-Direct-v0` / `-Direct-Play-v0` tasks live in
+  `tasks/leap_hand_grasp/`; existing contact-point task IDs/MDPs are unchanged.
+  See `docs/stage-a-grasp.md` for commands, criteria and validation limits.
+- Full object-filtered **normal + friction** force vectors, force-history checks,
+  measured pulp-region gate, non-pulp-support exclusion, bounded joint-target
+  increments, persistent 2 s hold and finite 10 s episodes. Observation is 124-d,
+  including remaining time; no random contact goals or resampling on success.
+- Pregrasp is a measured support-free fixture, not a learned policy. Loaded
+  DexCube is **0.072 m** per side at scale 1.2 (new task half extent 0.036 m);
+  mass explicitly pinned to 0.216 kg. Earlier contact smoke's permissive bbox
+  check did not establish the old 0.03 m half extent; old task remains unchanged.
+- PhysX passed 4-env/330-step fixture holding with ~99.7% valid occupancy and
+  live shear forces; tiny PPO/checkpoint checks are not learning evidence.
+  Use `train_dexpbt_member.py` for exploration bounds; `grasp_hold` PBT selection
+  is opt-in, uses support-free retention/valid occupancy and physical condition stamps.
+- Newton current full-force API works after a new-task-only collision-schema
+  adaptation (session layer, no asset/package patches). Its 330-step shared-fixture
+  probe retained the cube but failed four-pulp validity with non-pulp support;
+  training is guarded, explicit `leap_grasp_newton_smoke.py` opts into experimental
+  validation. OVPhysX's installed sensor lacks friction/point tracking and is refused.
+  Do not generalize historical Newton zero-force reports: this probe initially
+  had **zero imported hand colliders**, not a missing full-force reporting API.
+
 ## Commands
 
 | Purpose | Command |

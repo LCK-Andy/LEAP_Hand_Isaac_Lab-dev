@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "joint_position": {
+    "a_0": 0.3210543990135193,
+    "a_1": 1.0412300825119019,
+    "a_2": -0.17131397128105164,
+    "a_3": 0.8467316627502441,
+    "a_4": 0.15852251648902893,
+    "a_5": 1.0563158988952637,
+    "a_6": 0.08108159899711609,
+    "a_7": 0.5138797760009766,
+    "a_8": 0.02515438199043274,
+    "a_9": 1.3123549222946167,
+    "a_10": -0.39127275347709656,
+    "a_11": 0.721714198589325,
+    "a_12": 1.6970010995864868,
+    "a_13": 0.19144496321678162,
+    "a_14": 0.6574328541755676,
+    "a_15": -0.9412192702293396
+  },
+  "joint_target": {
+    "a_0": 0.3036261200904846,
+    "a_1": 1.084389567375183,
+    "a_2": -0.14111071825027466,
+    "a_3": 0.8673853874206543,
+    "a_4": 0.13977134227752686,
+    "a_5": 1.26348078250885,
+    "a_6": 0.19535568356513977,
+    "a_7": 0.5881025791168213,
+    "a_8": 0.009607817977666855,
+    "a_9": 1.3435813188552856,
+    "a_10": -0.5059999227523804,
+    "a_11": 0.7291930913925171,
+    "a_12": 1.7633942365646362,
+    "a_13": 0.21327725052833557,
+    "a_14": 0.7778360247612,
+    "a_15": -0.8695755004882812
+  },
+  "object_pose": [
+    0.007546424865722656,
+    -0.07914578914642334,
+    0.6369016170501709,
+    0.06339755654335022,
+    -0.0059604160487651825,
+    0.08152203261852264,
+    0.9946352243423462
+  ],
+  "pulps": {
+    "fingertip": {
+      "center": [-0.0109, -0.0355, 0.0145],
+      "half_extents": [0.0017, 0.015, 0.0125],
+      "normal": [-1.0, 0.0, 0.0]
+    },
+    "thumb_fingertip": {
+      "center": [-0.0109, -0.0467, -0.0145],
+      "half_extents": [0.0017, 0.0153, 0.0125],
+      "normal": [-1.0, 0.0, 0.0]
+    },
+    "fingertip_2": {
+      "center": [-0.0109, -0.0355, 0.0145],
+      "half_extents": [0.0017, 0.015, 0.0125],
+      "normal": [-1.0, 0.0, 0.0]
+    },
+    "fingertip_3": {
+      "center": [-0.0109, -0.0355, 0.0145],
+      "half_extents": [0.0017, 0.015, 0.0125],
+      "normal": [-1.0, 0.0, 0.0]
+    }
+  },
+  "provenance": {
+    "date": "2026-09-25",
+    "environment": "Isaac Lab 3.0.0rc1 / Isaac Sim 6.1 / PhysX",
+    "task_used": "Isaac-Contact-Cube-LEAP-Direct-v0",
+    "method": "Actual-USD joint-transform IK at elevated cube positions, bounded absolute-target search, physically stepped fixed-target holds; no RL or asset changes.",
+    "source_result": "/tmp/leap_stage_a_pregrasp_result.json",
+    "source_snapshot": "replay_validation_best[0].hold_end",
+    "probe_script": "/tmp/leap_stage_a_probe.py",
+    "hand_root_pose_env_xyzw": [0.0, 0.0, 0.5, 0.5, -0.5, 0.5, 0.5],
+    "object_spawn_scale": [1.2, 1.2, 1.2],
+    "object_mass_measured_kg": 0.2160000056028366,
+    "cube_collision_surface_half_extent_measured_m": 0.036,
+    "cube_geometry_warning": "Unmodified legacy DexCube config labels this a 6cm cube, but measured force-bearing contacts transformed into object frame lie at approximately +/-0.036m. Do not assume exact 0.03m collision half extent; remeasure in the new task.",
+    "actuator": {"stiffness": 3.0, "damping": 0.1, "effort_limit_Nm": 0.5, "armature": 0.001, "friction": 0.01}
+  },
+  "validation": {
+    "physics_dt_s": 0.008333333333333333,
+    "parallel_envs": 32,
+    "fixed_target_settle_s": 1.0,
+    "fixed_target_measured_hold_s": 3.0,
+    "measure_every_physics_step": true,
+    "tip_order": ["fingertip", "thumb_fingertip", "fingertip_2", "fingertip_3"],
+    "best_replay_tip_normal_min_N": [1.2017569541931152, 5.798364639282227, 4.089451789855957, 0.7824771404266357],
+    "best_replay_tip_normal_mean_N": [1.2145942449569702, 5.819155693054199, 4.0966339111328125, 0.806903600692749],
+    "best_replay_tip_normal_max_N": [1.2293190956115723, 5.835239887237549, 4.103151321411133, 0.8294759392738342],
+    "best_replay_position_drift_m": 0.000030109034923953004,
+    "best_replay_orientation_drift_rad": 0.0013810679083690047,
+    "non_tip_body_reporting_threshold_N": 0.001,
+    "non_tip_bodies_above_reporting_threshold": [],
+    "normal_force_gate_N": 0.1,
+    "outward_pad_normal_local": [-1.0, 0.0, 0.0],
+    "applied_normal_force_alignment_with_local_positive_x": [0.9666132926940918, 0.9201967716217041, 0.9745995402336121, 0.9664308428764343],
+    "snapshot_friction_norm_over_normal_norm": [0.5682631653079232, 0.6631161051419288, 0.4245628545911322, 0.7419217253269536],
+    "snapshot_sum_hand_normal_plus_friction_world_N": [0.0008867532014846802, -0.013609930872917175, -2.119081772863865],
+    "force_weighted_contact_positions_body_local": {
+      "fingertip": [-0.01069373358041048, -0.04951390624046326, 0.012521021068096161],
+      "thumb_fingertip": [-0.01103922, -0.03316478, -0.00857411],
+      "fingertip_2": [-0.010692035779356956, -0.04951369762420654, 0.012521807104349136],
+      "fingertip_3": [-0.010526910424232483, -0.04592088982462883, 0.0054937973618507385]
+    },
+    "ten_second_hold_validated": false,
+    "immediate_reset_validity_validated": false
+  },
+  "note": [
+    "Joint values are radians keyed by name, not articulation order or normalized actions. Object translation is env-relative; quaternion is xyzw. Reset velocities to zero and keep joint_target fixed for the validation hold.",
+    "This is the final physically stable snapshot of the best replay. The preceding seed fixture was reset to zero velocities in all 32 environments, settled 1s, then held 3s. This final snapshot itself has not yet been independently reset/replayed; main smoke must validate immediate reset and 10s stability.",
+    "The white pulp extends along local -Y; its ventral flat contact face points outward along local -X. The rounded distal end is -Y, not the ventral pad normal. Reaction force ON the hand points approximately +X when the ventral pad contacts the cube.",
+    "Pulp AABBs are a ventral-surface proxy based on actual USD white_tip/white_tip_thumb mesh geometry and loaded contacts, not the entire fingertip body. The USD merges pulp and cage collision geometry via convex decomposition, so body-level sensors cannot prove tactile-hardware patch identity. Require contact locations plus normal alignment; current fixture loads near distal finger edges and proximal thumb edge.",
+    "ContactSensor.data.contact_pos_w is an unweighted mean including zero-force speculative contacts, NOT center of pressure. Raw scalar normal-force weighted contact positions are provided separately. Full 3D normal and friction vectors were measured and saved in the source result.",
+    "All 17 robot rigid bodies were independently cube-filtered in the probe, so non-pulp support cannot cancel between partners. No non-tip force exceeded 0.001N in the reported replay. Ground was not instrumented separately; cube stayed near z0.637m, far above ground.",
+    "Normal+friction action-reaction sum on the hand was approximately (0,0,-2.119)N, agreeing with measured 0.216kg cube weight 2.119N. Scalar normal forces alone do not supply a complete force balance.",
+    "This is a measured fixture in one local PhysX asset/material regime, not a robustness certificate across mass, friction, backends, or randomization. The bound .5-8N fingers / 1-16N thumb is plausible here but requires task smoke validation and must not be inferred from normal force alone."
+  ]
+}
