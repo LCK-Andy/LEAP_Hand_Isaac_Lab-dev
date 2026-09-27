@@ -1,3 +1,5 @@
+from async_pbt.integrations.rl_games import pbt as public_pbt
+
 """Recipient-owned PBT randomness across public publication/restart boundaries."""
 
 import copy
@@ -13,11 +15,11 @@ from test_dexpbt_pbt import FakeAlgo, config, episode_info, load_module
 def observer_at(pbt, root, member, metadata=None):
     cfg = config(member)
     if metadata is not None:
-        pbt.apply_overrides(cfg, metadata["params"])
+        load_module("runtime").apply_overrides(cfg, metadata["params"])
     args = types.SimpleNamespace(
         original_argv=["train.py"],
         pbt_resume_metadata=metadata,
-        checkpoint=metadata["checkpoint"] if metadata and "checkpoint" in metadata else None,
+        checkpoint=(metadata["checkpoint"] if metadata and "checkpoint" in metadata else None),
     )
     observer = pbt.PbtAlgoObserver(cfg, args)
     algo = FakeAlgo(root, cfg, f"member-{member}")
@@ -41,7 +43,7 @@ def restart_record(observer):
 
 def test_global_reseeding_does_not_change_recipient_mutation(tmp_path, monkeypatch):
     pbt = load_module("pbt")
-    monkeypatch.setattr(pbt.os, "execv", lambda *_: None)
+    monkeypatch.setattr(public_pbt.os, "execv", lambda *_: None)
     outcomes = []
     for branch, global_seed in enumerate((123, 999)):
         root = tmp_path / str(branch)
@@ -61,7 +63,7 @@ def test_global_reseeding_does_not_change_recipient_mutation(tmp_path, monkeypat
 def test_replacement_and_publication_resume_continue_recipient_not_donor_rng(tmp_path, monkeypatch):
     pbt = load_module("pbt")
     runtime = load_module("runtime")
-    monkeypatch.setattr(pbt.os, "execv", lambda *_: None)
+    monkeypatch.setattr(public_pbt.os, "execv", lambda *_: None)
     donor, donor_algo = observer_at(pbt, tmp_path, 0)
     publish(donor, donor_algo, 100, success=4)
     donor_record = runtime.resume_metadata(donor.curr_policy_dir + "/000000000001.pth")
@@ -104,7 +106,11 @@ def test_legacy_fallback_is_warned_reproducible_and_recipient_age_owned(tmp_path
         random.seed(global_seed)
         args = types.SimpleNamespace(
             original_argv=["train.py"],
-            pbt_resume_metadata={"frame": donor_frame, "recipient_frame": 400, "recipient_epoch": 4},
+            pbt_resume_metadata={
+                "frame": donor_frame,
+                "recipient_frame": 400,
+                "recipient_epoch": 4,
+            },
         )
         with pytest.warns(RuntimeWarning, match="legacy.*pbt_rng_state.*pbt_rng_legacy_v1"):
             observer = pbt.PbtAlgoObserver(config(1), args)
@@ -126,7 +132,12 @@ def test_staging_legacy_recipient_does_not_import_donor_rng(tmp_path):
     runtime = load_module("runtime")
     checkpoint = tmp_path / "donor.pth"
     checkpoint.write_bytes(b"donor")
-    donor = {"checkpoint": str(checkpoint), "policy_idx": 0, "frame": 100, "pbt_rng_state": ["donor"]}
+    donor = {
+        "checkpoint": str(checkpoint),
+        "policy_idx": 0,
+        "frame": 100,
+        "pbt_rng_state": ["donor"],
+    }
     recipient = {"policy_idx": 1, "frame": 200, "epoch": 2}
     staged, companion = utils.stage_restart(tmp_path, donor, recipient, {})
     assert "pbt_rng_state" not in runtime.resume_metadata(staged, companion)
@@ -166,7 +177,7 @@ def test_plain_checkpoint_fallback_uses_restored_age_and_is_published(tmp_path):
 def test_copy_only_bypasses_mutation_and_keeps_recipient_rng(tmp_path, monkeypatch):
     pbt = load_module("pbt")
     runtime = load_module("runtime")
-    monkeypatch.setattr(pbt.os, "execv", lambda *_: None)
+    monkeypatch.setattr(public_pbt.os, "execv", lambda *_: None)
     donor, donor_algo = observer_at(pbt, tmp_path, 0)
     donor_algo.last_lr = 0.02  # copy-only must not even clamp adaptive LR
     publish(donor, donor_algo, 100, success=4)
@@ -182,7 +193,12 @@ def test_copy_only_bypasses_mutation_and_keeps_recipient_rng(tmp_path, monkeypat
 def test_mutation_arms_preserve_realized_initial_configuration():
     pbt = load_module("pbt")
     values = []
-    for knobs in ({}, {"mutation_rate": 1.0}, {"copy_only": True}, {"change_range": [1.05, 1.2]}):
+    for knobs in (
+        {},
+        {"mutation_rate": 1.0},
+        {"copy_only": True},
+        {"change_range": [1.05, 1.2]},
+    ):
         settings = config(1)
         settings["pbt"].update(objective="allegro_goals", **knobs)
         values.append(pbt.initialize_population(settings))
@@ -195,7 +211,7 @@ def test_initial_population_diversity_keeps_seed_pairs_and_baseline():
     baseline = copy.deepcopy(original)
     before = random.getstate()
     pbt.initialize_population(baseline)
-    assert baseline == original
+    assert baseline == {**original, "pbt": {**original["pbt"], "objective": "dexpbt"}}
     first, repeated = config(1), config(1)
     assert pbt.initialize_population(first) == pbt.initialize_population(repeated)
     assert first["params"]["config"] != original["params"]["config"]

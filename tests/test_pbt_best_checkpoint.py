@@ -1,3 +1,5 @@
+from async_pbt.integrations.rl_games import best_checkpoint as public_best
+
 """Simulator-free regression of the RL-Games best-save lifecycle and transactions."""
 
 import importlib.util
@@ -298,7 +300,7 @@ def test_json_commit_failure_is_retryable_without_corrupting_winner(tmp_path, mo
     algo = Algo(tmp_path)
     observer = attach(algo)
     algo.train(observer, [100])
-    original_replace = best.os.replace
+    original_replace = public_best.os.replace
     committed = (tmp_path / "best_history.json").read_bytes()
 
     def fail_record(source, target):
@@ -307,7 +309,7 @@ def test_json_commit_failure_is_retryable_without_corrupting_winner(tmp_path, mo
         return original_replace(source, target)
 
     with monkeypatch.context() as patch:
-        patch.setattr(best.os, "replace", fail_record)
+        patch.setattr(public_best.os, "replace", fail_record)
         with pytest.raises(OSError, match="commit failed"):
             algo.train(observer, [110])
     assert (tmp_path / "best_history.json").read_bytes() == committed

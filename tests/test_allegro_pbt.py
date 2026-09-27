@@ -1,3 +1,5 @@
+from async_pbt.integrations.rl_games import pbt as public_pbt
+
 """Simulator-free native Allegro measurement and asynchronous selection tests."""
 
 import importlib.util
@@ -91,10 +93,18 @@ def test_allegro_defaults_do_not_change_other_objectives():
 
     config = load_module("pbt_cfg").PbtCfg
     allegro = config(objective="allegro_goals")
-    assert (allegro.threshold_std, allegro.mutation_rate, allegro.change_range) == (2.0, 0.33, (1.1, 1.5))
+    assert (allegro.threshold_std, allegro.mutation_rate, allegro.change_range) == (
+        2.0,
+        0.33,
+        (1.1, 1.5),
+    )
     for objective in ("dexpbt", "contact_goals"):
         other = config(objective=objective)
-        assert (other.threshold_std, other.mutation_rate, other.change_range) == (0.2, 0.25, (1.1, 2.0))
+        assert (other.threshold_std, other.mutation_rate, other.change_range) == (
+            0.2,
+            0.25,
+            (1.1, 2.0),
+        )
 
 
 def test_conservative_gate_reports_counts_gap_and_standard_error():
@@ -145,7 +155,10 @@ def test_weakest_role_uses_only_fresh_windows_and_donor_own_maturity():
     from test_dexpbt_pbt import load_module
 
     settings = load_module("pbt_cfg").PbtCfg(
-        objective="allegro_goals", recipient_role="weakest", donor_maturity_rollouts=64, warmup_steps=3000000
+        objective="allegro_goals",
+        recipient_role="weakest",
+        donor_maturity_rollouts=64,
+        warmup_steps=3000000,
     )
     donor = record(3, 9000000)
     donor.update(rollout_frames=16000, last_exploit_frame=8000000)
@@ -165,7 +178,7 @@ def test_observer_two_window_evidence_survives_resume_and_cooldown(tmp_path, mon
     pbt = load_module("pbt")
     runtime = load_module("runtime")
     executed = []
-    monkeypatch.setattr(pbt.os, "execv", lambda *args: executed.append(args))
+    monkeypatch.setattr(public_pbt.os, "execv", lambda *args: executed.append(args))
 
     def observer(member, metadata=None):
         settings = config(member)
@@ -278,7 +291,14 @@ def test_final_evaluation_plan_checks_exact_budget_and_heldout_seeds(tmp_path):
         )
     )
     helper = PATH.parents[6] / "scripts/rl_games/evaluate_allegro_population.py"
-    command = [sys.executable, str(helper), "--manifest", str(manifest), "--split", "test"]
+    command = [
+        sys.executable,
+        str(helper),
+        "--manifest",
+        str(manifest),
+        "--split",
+        "test",
+    ]
     result = subprocess.run(command, capture_output=True, text=True, check=True)
     jobs = json.loads(result.stdout)
     assert len(jobs) == 2 and {j["seed"] for j in jobs} == {2042, 2043}

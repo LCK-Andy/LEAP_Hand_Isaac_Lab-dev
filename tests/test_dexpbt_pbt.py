@@ -1,3 +1,5 @@
+from async_pbt.integrations.rl_games import pbt as public_pbt
+
 """Lightweight public-boundary PBT tests; no simulator or task imports."""
 
 import importlib.util
@@ -42,7 +44,11 @@ def test_cli_roundtrip_preserves_identity_and_types():
         "params.config.entropy_coef=0.01",
     ]
     command = runtime.restart_command(
-        original, "python-real", "/tmp/new.pth", "/tmp/new.yaml", {"agent.params.config.learning_rate": 5e-5}
+        original,
+        "python-real",
+        "/tmp/new.pth",
+        "/tmp/new.yaml",
+        {"agent.params.config.learning_rate": 5e-5},
     )
     assert command[:2] == ["python-real", "/repo/train.py"]
     assert "old.pth" not in command
@@ -73,12 +79,23 @@ def config(member=0):
             "min_completed_episodes": 4,
             "threshold_abs": 0.001,
             "threshold_std": 0.2,
-            "mutation": {prefix + "learning_rate": "mutate_float", prefix + "kl_threshold": "mutate_float"},
-            "mutation_bounds": {prefix + "learning_rate": [1e-5, 0.01], prefix + "kl_threshold": [0.001, 0.1]},
+            "mutation": {
+                prefix + "learning_rate": "mutate_float",
+                prefix + "kl_threshold": "mutate_float",
+            },
+            "mutation_bounds": {
+                prefix + "learning_rate": [1e-5, 0.01],
+                prefix + "kl_threshold": [0.001, 0.1],
+            },
         },
         "params": {
             "seed": 42,
-            "config": {"learning_rate": 0.001, "kl_threshold": 0.01, "entropy_coef": 0.0, "grad_norm": 1.0},
+            "config": {
+                "learning_rate": 0.001,
+                "kl_threshold": 0.01,
+                "entropy_coef": 0.0,
+                "grad_norm": 1.0,
+            },
         },
     }
 
@@ -216,7 +233,7 @@ def test_publications_keep_rolling_evidence_without_refreshing_old_dates(tmp_pat
     settings["pbt"].update(selection_enabled=False, max_score_age_seconds=10, max_frame_lag=1000)
     algo = FakeAlgo(tmp_path, settings, "ROLLING")
     clock = [1.0]
-    monkeypatch.setattr(pbt.time, "time", lambda: clock[0])
+    monkeypatch.setattr(public_pbt.time, "time", lambda: clock[0])
     observer = pbt.PbtAlgoObserver(settings, types.SimpleNamespace(original_argv=["train.py"]))
     observer.after_init(algo)
     algo.frame = 90
@@ -288,7 +305,10 @@ def test_forced_tournament_restart_roundtrip(tmp_path, monkeypatch):
     assert metadata["policy_idx"] == 1 and metadata["donor_policy_idx"] == 0
     assert not metadata["evaluations"] and metadata["objective_valid"] is False
     assert not recipient_observer.window.ready(recipient_observer.cfg, 300)
-    assert metadata["params"] != {"agent.params.config.learning_rate": 0.0004, "agent.params.config.kl_threshold": 0.01}
+    assert metadata["params"] != {
+        "agent.params.config.learning_rate": 0.0004,
+        "agent.params.config.kl_threshold": 0.01,
+    }
     pbt_overrides, params, _ = runtime.split_overrides(argv[2:])
     restored_cfg = config(1)
     runtime.apply_overrides(restored_cfg, metadata["params"])
@@ -319,7 +339,12 @@ def test_success_priority_and_condition_gating():
     def record(success, pos, adr=0.0):
         window = utils.EpisodeWindow()
         window.add(episode_info(success=success, position=pos, adr=adr), 100, now=10)
-        return {"schema_version": 2, "created_at": 10, "frame": 100, "evaluations": window.ready(cfg, 100, now=10)}
+        return {
+            "schema_version": 2,
+            "created_at": 10,
+            "frame": 100,
+            "evaluations": window.ready(cfg, 100, now=10),
+        }
 
     ours = record(1, 2.0)
     assert utils.select_donor({1: record(0, 0.0)}, ours, cfg, now=11) is None
@@ -339,15 +364,32 @@ def test_selection_diagnostics_distinguish_missing_ineligible_and_thresholds():
         evaluations = window.ready(cfg, 100, now=10)
         for group in evaluations.values():
             group.pop("batches", None)  # Aggregate-only legacy companions still obey their original timestamps.
-        return {"schema_version": 2, "created_at": 10, "frame": 100, "evaluations": evaluations}
+        return {
+            "schema_version": 2,
+            "created_at": 10,
+            "frame": 100,
+            "evaluations": evaluations,
+        }
 
     own = record()
     cases = [
         ({1: None}, "no_donor_records", None),
-        ({1: {**record(), "created_at": -2000}}, "no_eligible_donors", "record_expired"),
-        ({1: {**record(), "frame": 3_000_000}}, "no_eligible_donors", "record_frame_mismatch"),
+        (
+            {1: {**record(), "created_at": -2000}},
+            "no_eligible_donors",
+            "record_expired",
+        ),
+        (
+            {1: {**record(), "frame": 3_000_000}},
+            "no_eligible_donors",
+            "record_frame_mismatch",
+        ),
         ({1: record(adr=0.5)}, "no_comparable_evidence", "physical_condition_mismatch"),
-        ({1: {**record(), "evaluations": {}}}, "no_comparable_evidence", "missing_evidence"),
+        (
+            {1: {**record(), "evaluations": {}}},
+            "no_comparable_evidence",
+            "missing_evidence",
+        ),
         ({1: record()}, "no_sufficient_improvement", None),
     ]
     for records, reason, rejection in cases:
@@ -362,8 +404,14 @@ def test_selection_diagnostics_distinguish_missing_ineligible_and_thresholds():
     assert diagnostics["donor"] == 1
     for group_change, reason in (
         ({"created_at": -2000}, "own_expired_evidence"),
-        ({"start_frame": -3_000_000, "end_frame": -3_000_000}, "own_evidence_frame_mismatch"),
-        ({"completed_episodes": 1, "good_contact_fraction_sum": 1}, "own_insufficient_fresh_episodes"),
+        (
+            {"start_frame": -3_000_000, "end_frame": -3_000_000},
+            "own_evidence_frame_mismatch",
+        ),
+        (
+            {"completed_episodes": 1, "good_contact_fraction_sum": 1},
+            "own_insufficient_fresh_episodes",
+        ),
     ):
         stale = record()
         next(iter(stale["evaluations"].values())).update(group_change)
@@ -442,11 +490,18 @@ def test_publication_diagnostics_report_invalid_evidence_and_selection_gates(tmp
     pbt = load_module("pbt")
     runtime = load_module("runtime")
     clock = [0.0]
-    monkeypatch.setattr(pbt.time, "time", lambda: clock[0])
+    monkeypatch.setattr(public_pbt.time, "time", lambda: clock[0])
     cases = (
         ("missing", 0, 1, {}, False, "own_missing_evidence"),
         ("expired", 4, 2000, {}, False, "own_expired_evidence"),
-        ("frame_expired", 4, 1, {"max_frame_lag": 10}, False, "own_evidence_frame_mismatch"),
+        (
+            "frame_expired",
+            4,
+            1,
+            {"max_frame_lag": 10},
+            False,
+            "own_evidence_frame_mismatch",
+        ),
         ("insufficient", 2, 1, {}, False, "own_insufficient_fresh_episodes"),
         ("zero_success", 4, 1, {}, True, "no_donor_records"),
         ("warmup", 4, 1, {"warmup_steps": 200}, True, "warmup"),
@@ -489,7 +544,9 @@ def test_publication_diagnostics_report_invalid_evidence_and_selection_gates(tmp
         assert not capsys.readouterr().out
 
 
-def test_native_play_steps_stamps_actual_completion_frames_and_restore_offsets(tmp_path):
+def test_native_play_steps_stamps_actual_completion_frames_and_restore_offsets(
+    tmp_path,
+):
     import torch
 
     from rl_games.common.a2c_common import A2CBase
@@ -512,9 +569,15 @@ def test_native_play_steps_stamps_actual_completion_frames_and_restore_offsets(t
     algo.get_action_values = lambda _: {"actions": torch.zeros(1, 1)}
     algo.get_values = lambda _: torch.zeros(1, 1)
     algo.rewards_shaper = lambda values: values
-    buffer = {"dones": torch.zeros(32, 1), "values": torch.zeros(32, 1, 1), "rewards": torch.zeros(32, 1, 1)}
+    buffer = {
+        "dones": torch.zeros(32, 1),
+        "values": torch.zeros(32, 1, 1),
+        "rewards": torch.zeros(32, 1, 1),
+    }
     algo.experience_buffer = types.SimpleNamespace(
-        tensor_dict=buffer, update_data=lambda *_: None, get_transformed_list=lambda *_: {}
+        tensor_dict=buffer,
+        update_data=lambda *_: None,
+        get_transformed_list=lambda *_: {},
     )
     algo.discount_values = lambda *_: torch.zeros(32, 1, 1)
     step = [0]
@@ -577,7 +640,12 @@ def test_selection_rejects_future_and_malformed_record_or_evidence_metadata():
     cfg = load_module("pbt_cfg").PbtCfg(**config()["pbt"])
     window = utils.EpisodeWindow(cfg)
     window.add(episode_info(count=4), 100, now=10)
-    own = {"schema_version": 2, "created_at": 10, "frame": 100, "evaluations": window.ready(cfg, 100, now=10)}
+    own = {
+        "schema_version": 2,
+        "created_at": 10,
+        "frame": 100,
+        "evaluations": window.ready(cfg, 100, now=10),
+    }
     for change, reason in (
         ({"created_at": 12}, "record_future_timestamp"),
         ({"created_at": float("nan")}, "record_invalid_metadata"),
@@ -609,7 +677,12 @@ def test_selection_rejects_invalid_statistics_and_container_shapes():
     cfg = load_module("pbt_cfg").PbtCfg(**config()["pbt"])
     window = utils.EpisodeWindow(cfg)
     window.add(episode_info(count=4), 100, now=10)
-    own = {"schema_version": 2, "created_at": 10, "frame": 100, "evaluations": window.ready(cfg, 100, now=10)}
+    own = {
+        "schema_version": 2,
+        "created_at": 10,
+        "frame": 100,
+        "evaluations": window.ready(cfg, 100, now=10),
+    }
     key = next(iter(own["evaluations"]))
     for legacy in (False, True):
         for field, value in (
@@ -631,14 +704,24 @@ def test_selection_rejects_invalid_statistics_and_container_shapes():
             diagnostics = {}
             assert utils.select_donor({1: donor}, own, cfg, now=11, diagnostics=diagnostics) is None
             assert diagnostics["rejections"]["invalid_evidence"] == 1
-        for field, value in (("success_rate", 2), ("success_rate", float("nan")), ("progress", -1)):
+        for field, value in (
+            ("success_rate", 2),
+            ("success_rate", float("nan")),
+            ("progress", -1),
+        ):
             donor = copy.deepcopy(own)
             donor["evaluations"][key].pop("batches")
             donor["evaluations"][key][field] = value
             diagnostics = {}
             assert utils.select_donor({1: donor}, own, cfg, now=11, diagnostics=diagnostics) is None
             assert diagnostics["rejections"]["invalid_evidence"] == 1
-    for evaluations in ([1], None, {key: [1]}, {key: {"batches": [1]}}, {key: {"batches": {"bad": 1}}}):
+    for evaluations in (
+        [1],
+        None,
+        {key: [1]},
+        {key: {"batches": [1]}},
+        {key: {"batches": {"bad": 1}}},
+    ):
         donor = {**own, "evaluations": evaluations}
         diagnostics = {}
         assert utils.select_donor({1: donor}, own, cfg, now=11, diagnostics=diagnostics) is None
@@ -658,7 +741,13 @@ def test_bounded_mutation_and_explicit_initial_diversity():
     mutation = load_module("mutation")
     for _ in range(100):
         before = values
-        values = mutation.mutate(values, other["pbt"]["mutation"], 0.0, (1.1, 2.0), other["pbt"]["mutation_bounds"])
+        values = mutation.mutate(
+            values,
+            other["pbt"]["mutation"],
+            0.0,
+            (1.1, 2.0),
+            other["pbt"]["mutation_bounds"],
+        )
         assert values != before
         assert 1e-5 <= values["agent.params.config.learning_rate"] <= 0.01
         assert 0.001 <= values["agent.params.config.kl_threshold"] <= 0.1
@@ -673,7 +762,10 @@ def test_compiled_checkpoint_restore_preserves_full_state(tmp_path):
     runtime = load_module("runtime")
     cfg = config()
     donor = FakeAlgo(tmp_path, cfg, "COMPILED")
-    donor.model = {"_orig_mod.weight": torch.tensor([7.0]), "_orig_mod.running_mean_std": torch.tensor([2.0])}
+    donor.model = {
+        "_orig_mod.weight": torch.tensor([7.0]),
+        "_orig_mod.running_mean_std": torch.tensor([2.0]),
+    }
     checkpoint = tmp_path / "compiled.pth"
     torch.save(donor.get_full_state_weights(), checkpoint)
     target = FakeAlgo(tmp_path, cfg, "EAGER")
@@ -716,7 +808,8 @@ def test_disabled_pbt_restores_but_never_publishes(tmp_path):
     cfg["params"]["config"]["learning_rate"] = 0.000123
     algo = FakeAlgo(tmp_path, cfg, "NEW")
     args = types.SimpleNamespace(
-        original_argv=["train.py"], pbt_resume_metadata={"frame": 0, "recipient_frame": 500, "recipient_epoch": 5}
+        original_argv=["train.py"],
+        pbt_resume_metadata={"frame": 0, "recipient_frame": 500, "recipient_epoch": 5},
     )
     observer = pbt.PbtAlgoObserver(cfg, args)
     observer.after_init(algo)
@@ -764,7 +857,7 @@ def test_terminal_callback_publishes_without_exploit_even_off_cadence(tmp_path, 
 
     pbt = load_module("pbt")
     runtime = load_module("runtime")
-    monkeypatch.setattr(pbt.os, "execv", lambda *_: pytest.fail("terminal exploit"))
+    monkeypatch.setattr(public_pbt.os, "execv", lambda *_: pytest.fail("terminal exploit"))
     for member, frame, success in ((0, 100, 4), (1, 150, 0)):
         settings = config(member)
         algo = FakeAlgo(tmp_path, settings, "terminal")
@@ -846,9 +939,20 @@ def test_population_forwarding_and_companion_resume_in_launcher(tmp_path):
         checkpoint = directory / "000001.pth"
         checkpoint.write_bytes(b"fake")
         checkpoint.with_suffix(".yaml").write_text(yaml.safe_dump({"frame": 100, "checkpoint": str(checkpoint)}))
-    env = {**os.environ, "POP": "2", "DRY_RUN": "1", "BASE": str(root), "RESUME": "1", "PYTHON": sys.executable}
+    env = {
+        **os.environ,
+        "POP": "2",
+        "DRY_RUN": "1",
+        "BASE": str(root),
+        "RESUME": "1",
+        "PYTHON": sys.executable,
+    }
     run = subprocess.run(
-        ["bash", str(ROOT / "scripts/launch/dexpbt_reorient.sh")], env=env, check=True, capture_output=True, text=True
+        ["bash", str(ROOT / "scripts/launch/dexpbt_reorient.sh")],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
     )
     import shlex
 
