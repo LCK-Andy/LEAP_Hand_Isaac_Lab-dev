@@ -9,7 +9,8 @@
 - Tactile force correction: direct LEAP uses the object-filtered force matrix, not `net_forces_w` (which includes self/ground contacts). Historical checkpoints may see different tactile observations/rewards; missing filtered data is an error, not a silent zero.
 - The repo root is NOT the Python package root. The package lives at `source/LEAP_Isaaclab/`.
 - Install with: `python -m pip install -e source/LEAP_Isaaclab`
-- All Isaac Lab / Isaac Sim / torch / numpy deps must be pre-installed in the conda environment; `install_requires` lists only `psutil`.
+- All Isaac Lab / Isaac Sim / torch / numpy deps must be pre-installed in the environment. `install_requires` includes `psutil` and the public `async-pbt` v0.1.0 Git dependency; do not install its trainer extra over the validated Isaac stack.
+- PBT engine implementation is supplied by `async-pbt`; local `tasks/dexsuite_reorient_pbt/pbt/` modules are compatibility adapters. Preserve the LEAP `dexpbt` default, legacy workspace paths, raw-checkpoint precedence, and pre-AppLauncher import safety. Task-specific warm-start/prior validation remains local. See `docs/async-pbt-integration.md`.
 
 ## EA migration validation and provenance (2026-09-25)
 
