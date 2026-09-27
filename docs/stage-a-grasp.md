@@ -7,6 +7,8 @@ New tasks:
 
 The existing `Isaac-Contact-Cube-LEAP-Direct-v0` and GRU task are unchanged. This is a new MDP and observation/action contract; their checkpoints are not compatible.
 
+For the subsequent single-learner, no-PBT model-based training path, see [Stage A TD-MPC2](tdmpc2-stage-a.md). It uses the same task and a fresh TD-MPC2 model, not a PPO checkpoint transfer.
+
 ## Scope
 
 This first stage retains a nominal cube in a measured four-pulp pregrasp. It does not pick up an object, select arbitrary contact locations, reorient it, estimate inertial parameters, or optimize excitation. It is a state-based simulation baseline, not a claim of tactile-only hardware deployment. Training starts from the same verified grasp rather than a broad distribution; robustness/randomized acquisition is a subsequent curriculum.
