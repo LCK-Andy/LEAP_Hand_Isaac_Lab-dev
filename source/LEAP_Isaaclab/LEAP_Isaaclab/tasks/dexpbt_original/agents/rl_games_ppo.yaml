@@ -1,0 +1,88 @@
+# Original recurrent PPO profile from IsaacGymEnvs July2023 release
+# 665c32170d84b4be66722eea405a1e08b6e7f761:
+# cfg/train/AllegroKukaPPO.yaml + AllegroKukaLSTMPPO.yaml.
+# Adaptations: explicit modern runner/device/obs registration; compile disabled.
+# No learned-logstd clamp/exploration observer; fixed_sigma is trainable logstd.
+params:
+  seed: 42
+  algo:
+    name: a2c_continuous
+  model:
+    name: continuous_a2c_logstd
+  network:
+    name: actor_critic
+    separate: false
+    space:
+      continuous:
+        mu_activation: None
+        sigma_activation: None
+        mu_init:
+          name: default
+        sigma_init:
+          name: const_initializer
+          val: 0
+        fixed_sigma: true
+    mlp:
+      units: [768, 512, 256]
+      activation: elu
+      d2rl: false
+      initializer:
+        name: default
+      regularizer:
+        name: None
+    rnn:
+      name: lstm
+      units: 768
+      layers: 1
+      before_mlp: true
+      layer_norm: true
+  load_checkpoint: false
+  load_path: ''
+  env:
+    clip_observations: 10.0
+    clip_actions: 1.0
+    obs_groups:
+      obs: [policy]
+      states: [policy]
+  config:
+    name: dexpbt_original
+    env_name: dexpbt_original
+    device: cuda:0
+    device_name: cuda:0
+    multi_gpu: false
+    ppo: true
+    mixed_precision: true
+    normalize_input: true
+    normalize_value: true
+    normalize_advantage: true
+    reward_shaper:
+      scale_value: 0.01
+    num_actors: 8192
+    gamma: 0.99
+    tau: 0.95
+    learning_rate: 0.0001
+    lr_schedule: adaptive
+    schedule_type: standard
+    kl_threshold: 0.016
+    score_to_win: 1000000
+    max_epochs: 100000
+    max_frames: 10000000000
+    save_best_after: 100
+    save_frequency: 5000
+    print_stats: true
+    grad_norm: 1.0
+    entropy_coef: 0.0
+    truncate_grads: true
+    e_clip: 0.1
+    minibatch_size: 32768
+    mini_epochs: 2
+    critic_coef: 4.0
+    clip_value: true
+    horizon_length: 16
+    seq_length: 16
+    bounds_loss_coef: 0.0001
+    torch_compile: false
+    player:
+      deterministic: false
+      games_num: 100000
+      print_stats: false

@@ -13,6 +13,12 @@ def build_parser():
     parser.add_argument("--num_envs", "--num-envs", type=int, default=1024)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-steps", type=int, default=50_000_896, help="Total native transitions, not vector steps")
+    parser.add_argument(
+        "--schedule-steps", type=int, help="Original transition budget for the LR schedule; defaults to max-steps"
+    )
+    parser.add_argument(
+        "--extend-budget", action="store_true", help="Resume a checkpoint with a larger absolute max-steps only"
+    )
     parser.add_argument("--replay-capacity", type=int, default=4_000_000)
     parser.add_argument("--buffer-device", default="cuda:0")
     parser.add_argument("--batch-size", type=int, default=2048)
@@ -21,7 +27,10 @@ def build_parser():
     parser.add_argument("--compile", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
-        "--compile-mode", default="auto", choices=("auto", "default", "max-autotune", "reduce-overhead")
+        "--compile-mode",
+        default="auto",
+        choices=("auto", "default", "max-autotune", "max-autotune-no-cudagraphs", "reduce-overhead"),
+        help="Use max-autotune-no-cudagraphs for Torch CUDA-graph pool errors; retains compilation/autotuning and AMP",
     )
     parser.add_argument("--checkpoint", type=Path, help="Trusted native checkpoint; replay refills on resume")
     parser.add_argument("--checkpoint-interval", type=int, default=1_000_000)
@@ -33,9 +42,14 @@ def build_parser():
 def validate_args(parser, args):
     if args.task != TASK:
         parser.error("Only the unchanged native Dexsuite task is supported")
+    if args.extend_budget and not args.checkpoint:
+        parser.error("--extend-budget requires --checkpoint")
+    if args.schedule_steps is None:
+        args.schedule_steps = args.max_steps
     for name in (
         "num_envs",
         "max_steps",
+        "schedule_steps",
         "replay_capacity",
         "batch_size",
         "warmup",
@@ -122,7 +136,10 @@ def make_agent_config(args):
     values = yaml.safe_load((root / "configs/agent/flashSAC.yaml").read_text())
     if values.pop("agent_type") != "flashSAC":
         raise ValueError("Expected the real FlashSAC agent config")
-    gradient_budget = math.ceil(args.max_steps / args.num_envs) * args.updates_per_vector_step
+    schedule_steps = getattr(args, "schedule_steps", None)
+    if schedule_steps is None:
+        schedule_steps = args.max_steps
+    gradient_budget = math.ceil(schedule_steps / args.num_envs) * args.updates_per_vector_step
     values.update(
         seed=args.seed,
         device_type=args.device,
@@ -350,14 +367,78 @@ RESUME_SEMANTICS = (
 )
 
 
-def load_checkpoint(path, contract):
+# Only this reviewed pre-extension runner pair may cross the source-contract boundary.
+# Pinned from logs/flashsac_download_weste_20260928_102525/contract.json before editing.
+OLD_RUNNER_SOURCE_SHA256 = {
+    "native/scripts/flashsac/runtime.py": "65a7f5a82d3e0215bd1a814c9697b550fda9dfda62f3182151bddfc0e7175a88",
+    "native/scripts/flashsac/train.py": "4d93f655a599c4a1cf0b6ff20ef394056d671deca8cce62f5ba69daba6bb9e4f",
+}
+
+
+def validate_checkpoint_contract(saved, current, *, allow_budget_extension=False):
+    """Accept strict resume or budget extension, optionally disabling only max-autotune CUDA graphs."""
+    error = "Foreign or stale FlashSAC checkpoint contract"
+    if not allow_budget_extension:
+        if saved != current:
+            raise ValueError(error)
+        return
+    if not isinstance(saved, dict) or not isinstance(current, dict) or saved.keys() != current.keys():
+        raise ValueError(error)
+    old_budget, new_budget = saved.get("max_steps"), current.get("max_steps")
+    if type(old_budget) is not int or type(new_budget) is not int or not 0 < old_budget < new_budget:
+        raise ValueError(f"{error}: extension requires a strictly larger max_steps")
+    for name in saved.keys() - {"max_steps", "source_sha256"}:
+        if saved[name] != current[name]:
+            # Execution-only workaround for Torch CUDA-graph pool tracking failures.
+            # Never change AMP, compilation, optimizer/LR settings, or any other agent field.
+            if (
+                name == "agent"
+                and isinstance(saved[name], dict)
+                and isinstance(current[name], dict)
+                and saved[name].get("compile_mode") == "max-autotune"
+                and current[name].get("compile_mode") == "max-autotune-no-cudagraphs"
+                and {**saved[name], "compile_mode": "max-autotune-no-cudagraphs"} == current[name]
+            ):
+                continue
+            raise ValueError(f"{error}: {name} changed")
+    old_sources, new_sources = saved.get("source_sha256"), current.get("source_sha256")
+    if (
+        not isinstance(old_sources, dict)
+        or not isinstance(new_sources, dict)
+        or old_sources.keys() != new_sources.keys()
+    ):
+        raise ValueError(f"{error}: source manifest keys changed")
+    changed = {name for name in old_sources if old_sources[name] != new_sources[name]}
+    if changed and (
+        not changed.issubset(OLD_RUNNER_SOURCE_SHA256)
+        or any(old_sources.get(name) != digest for name, digest in OLD_RUNNER_SOURCE_SHA256.items())
+    ):
+        raise ValueError(f"{error}: unsupported source changes: {sorted(changed)}")
+    if changed:
+        import hashlib
+
+        for name in OLD_RUNNER_SOURCE_SHA256:
+            actual = hashlib.sha256((Path(__file__).resolve().parent / Path(name).name).read_bytes()).hexdigest()
+            if new_sources[name] != actual:
+                raise ValueError(f"{error}: unverified current runner source: {name}")
+
+
+def load_checkpoint(path, contract, *, allow_budget_extension=False):
     import torch
 
     payload = torch.load(path, map_location="cpu", weights_only=False)
-    if payload.get("format") != FORMAT or payload.get("contract") != contract:
+    if payload.get("format") != FORMAT:
         raise ValueError("Foreign or stale FlashSAC checkpoint contract")
+    validate_checkpoint_contract(payload.get("contract"), contract, allow_budget_extension=allow_budget_extension)
     if not {"agent", "trainer", "environment", "episodes"}.issubset(payload):
         raise ValueError("Incomplete FlashSAC checkpoint")
+    if allow_budget_extension:
+        progress = VectorProgress(contract["num_envs"], contract["updates_per_vector_step"])
+        progress.load_state_dict(payload["trainer"])
+        if payload["agent"].get("update_step") != progress.updates:
+            raise ValueError("Learner/trainer update counters disagree")
+        if contract["max_steps"] <= progress.frame:
+            raise ValueError("Budget extension target must exceed the saved transition count")
     return payload
 
 

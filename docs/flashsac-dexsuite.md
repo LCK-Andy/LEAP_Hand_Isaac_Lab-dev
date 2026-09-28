@@ -114,6 +114,49 @@ configuration checks are skipped if the patched source is absent.
   Periodic diagnostics continue checking liveness. Actor metrics can be absent on
   alternate updates because its upstream period is 2.
 
-Deployment, compiled-memory fit and native learning acquisition remain separate
-validation steps. This document does not claim that the Weste launch or a successful
-learning run has occurred merely because the entrypoint and CPU contracts exist.
+## Extending a completed budget without restarting the LR schedule
+
+An extension uses an **absolute** new target and the original schedule budget:
+
+```bash
+PYTHONPATH=/absolute/immutable/FlashSAC \
+  /home/andy/env_isaaclab/bin/python scripts/flashsac/train.py \
+  --workspace /absolute/runs/dexsuite-flashsac-extend100m --headless \
+  --checkpoint /absolute/original/checkpoints/latest.pt --extend-budget \
+  --max-steps 150000896 --schedule-steps 50000896 \
+  --compile-mode max-autotune-no-cudagraphs
+```
+
+For the completed50,000,896-transition run this adds100M requested transitions;
+1024-env vector rounding gives150,001,664 total. `--extend-budget` requires a fresh
+workspace and a target greater than both the saved budget and actual saved frame.
+Only the exact pinned original runner pair can use the narrow source upgrade;
+all task, agent, FlashSAC and other source-contract fields remain strict.
+
+`--schedule-steps 50000896` recreates the original97,658-update LR closure before
+loading optimizer/scheduler states. It does not restart warmup or increase restored
+learning rates. Actor/temperature schedules advance half as often as the critic,
+so their original remaining decay continues independently; each clamps to1.5e-4
+at its own schedule endpoint. Replay still refills because it was not saved.
+
+To resume the continuation again, retain `--max-steps 150000896` and
+`--schedule-steps 50000896`, point `--checkpoint` at its checkpoint, and **omit
+`--extend-budget`**. Retain `--compile-mode max-autotune-no-cudagraphs` as well.
+The target is not incremented again.
+
+The initial real resume hit a Torch CUDA-graph pool tracking error at actor backward.
+The supported `max-autotune-no-cudagraphs` mode retains compilation/autotuning and
+AMP but omits CUDA-graph capture. Only this exact change from saved `max-autotune`
+is permitted during explicit budget extension; other agent settings stay strict.
+No installed package is patched, and the failed resume evidence is retained.
+
+Weste deployment was verified on2026-09-28 after 2M and4M compiled/AMP memory-fit
+checks. The active single learner uses4M CUDA replay and1024environments, with the
+other StageA/StageB jobs left running. Initial acceptance reached1,507,328transitions
+and2746updates, with a verified1Mcheckpoint and finite actor/critic optimization.
+No task successes were established at acceptance. TensorBoard6007 run:
+`flashsac-weste-20260928-dexsuite-r1/prod`.
+
+See the [deployment and preservation record](research/2026-09-28-flashsac-dexsuite-weste-run.md).
+Local relevant regressions passed391tests and7subtests, with3CUDA-only skips;
+native training/resume and full remote compiled updates were checked separately.

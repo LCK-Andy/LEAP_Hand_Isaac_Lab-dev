@@ -108,6 +108,8 @@ def train(args, simulation_app):
         )
         # Resume may write only to this contract's workspace, never overwrite foreign run metadata.
         contract_path = args.workspace / "contract.json"
+        if args.extend_budget and any(path.name != "writer.lock" for path in args.workspace.iterdir()):
+            raise ValueError("Budget extension requires a fresh workspace; use normal resume for an existing extension")
         if contract_path.exists() and json.loads(contract_path.read_text()) != contract:
             raise ValueError("Workspace belongs to a different FlashSAC contract")
         if not contract_path.exists() and any(path.name != "writer.lock" for path in args.workspace.iterdir()):
@@ -115,7 +117,7 @@ def train(args, simulation_app):
         progress = VectorProgress(args.num_envs, args.updates_per_vector_step)
         episodes = EpisodeMetrics(args.num_envs, env.device)
         if args.checkpoint:
-            payload = load_checkpoint(args.checkpoint, contract)
+            payload = load_checkpoint(args.checkpoint, contract, allow_budget_extension=args.extend_budget)
             progress.load_state_dict(payload["trainer"])
             episodes.load_state_dict(payload["episodes"])
             env.set_state(payload["environment"])
@@ -123,8 +125,14 @@ def train(args, simulation_app):
             restore_learner(agent, payload["agent"])
             if agent._update_step != progress.updates:
                 raise ValueError("Learner/trainer update counters disagree")
+            saved_budget = payload["contract"]["max_steps"]
             del payload
-            print(f"[flashsac] Resume frame={progress.frame}; {RESUME_SEMANTICS}", flush=True)
+            print(
+                f"[flashsac] {'Budget extension' if args.extend_budget else 'Resume'} "
+                f"frame={progress.frame} updates={progress.updates}; budget={saved_budget}->{args.max_steps}; "
+                f"{RESUME_SEMANTICS}; optimizer/scheduler counters retained (no restart/stretch)",
+                flush=True,
+            )
         writer = SummaryWriter(str(args.workspace / "summaries"))
         dump_yaml(str(args.workspace / "env.yaml"), cfg)
         json_write(args.workspace / "agent.json", dataclasses.asdict(agent.cfg))
@@ -140,7 +148,12 @@ def train(args, simulation_app):
         )
         print(
             f"[flashsac] Single learner, NO PBT; {args.num_envs} envs, 1745 obs / 23 actions; "
-            f"budget={args.max_steps} transitions, {args.updates_per_vector_step} updates/vector step; "
+            f"budget={args.max_steps} transitions, "
+            f"whole-vector end={math.ceil(args.max_steps / args.num_envs) * args.num_envs}; "
+            f"schedule={args.schedule_steps} transitions, warmup/decay="
+            f"{agent.cfg.learning_rate_warmup_step}/{agent.cfg.learning_rate_decay_step} optimizer steps, "
+            f"LR end={agent.cfg.learning_rate_end} (each network's own scheduler); "
+            f"{args.updates_per_vector_step} updates/vector step; "
             f"replay={args.replay_capacity}@{args.buffer_device}, nstep=3, gamma=.99; "
             f"compile={agent.cfg.use_compile}/{agent.cfg.compile_mode}, AMP={agent.cfg.use_amp}",
             flush=True,

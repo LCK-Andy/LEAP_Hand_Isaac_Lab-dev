@@ -1,0 +1,22 @@
+{
+  "repository": "https://github.com/isaac-sim/IsaacGymEnvs",
+  "commit": "665c32170d84b4be66722eea405a1e08b6e7f761",
+  "purpose": "Unmodified BSD-3-Clause reference files for numerical and configuration parity tests; never import Isaac Gym task modules into Isaac Lab.",
+  "files": {
+    "LICENSE.txt": "68f7ce6ed43e93e5d6404a9b05f97c0864a32b373548dba93a2c262e81561931",
+    "isaacgymenvs/utils/torch_jit_utils.py": "95602e6ef57c148143f682640e063eb27ded035d04a29fe5959de032177e6ca3",
+    "isaacgymenvs/tasks/allegro_kuka/allegro_kuka_base.py": "367587172eb2d78834d20dbd0cf701322c8378368f48f9679765e3697aab331b",
+    "isaacgymenvs/tasks/allegro_kuka/allegro_kuka_reorientation.py": "e5dfdae5a1a41cf0bdf546e0909103662084d025692975a5b1ec1aae641fbd82",
+    "isaacgymenvs/tasks/allegro_kuka/allegro_kuka_utils.py": "a363db1eedd040f93c16b60381fea58833fc8b3c2f3493db2e33d7486217e257",
+    "isaacgymenvs/tasks/allegro_kuka/generate_cuboids.py": "33d1da81f897604d40928825bf872c5f847a14630051082550fd46bb07ccb1e0",
+    "isaacgymenvs/cfg/task/AllegroKuka.yaml": "66ac8a39727eeddb6cc779fed69efdc5fc8016ce894404996e293b8cf9e3e25d",
+    "isaacgymenvs/cfg/task/AllegroKukaLSTM.yaml": "fef5c39cca29fc93193d449f36cfcd85776b877e4a376a68959551c6becccda4",
+    "isaacgymenvs/cfg/train/AllegroKukaLSTMPPO.yaml": "a83f37d36f2f7aee9d030f6adcfabcf9c539891c0f4dea69ae560da83c24ee8e",
+    "isaacgymenvs/cfg/train/AllegroKukaPPO.yaml": "8243334348bcd336dccc794c8b4f0c99578cde0a4b7a86bbeb759831afedb18e",
+    "isaacgymenvs/cfg/pbt/pbt_default.yaml": "629f986d0b2b546bd03af204984dd98bf32214fb12d3996a71e3567f583a8902",
+    "isaacgymenvs/cfg/pbt/mutation/allegro_kuka_mutation.yaml": "3bc51d4e8d6a1969fb60bc94a6ed9dae6c7d29963c0271a8da5b6eddcd2a90b2",
+    "isaacgymenvs/pbt/mutation.py": "1f7d6a5b7462a2459948b394f5443fc45878d9395af28cfc601765f179663e61",
+    "isaacgymenvs/pbt/pbt.py": "c9f44495c87940b84808713c27ec00f5e5a30569b80f6eca03e0721dd214e2c1",
+    "assets/asset_templates/cube_multicolor_allegro.urdf.template": "770e13159903e2e132408443eef2dde2414083459bbae262a592a1c96dc05079"
+  }
+}
